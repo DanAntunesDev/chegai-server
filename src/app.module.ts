@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { validateEnv } from './config/env';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+import { Env, validateEnv } from './config/env';
+import { buildLoggerOptions } from './config/logger';
 
 @Module({
   imports: [
@@ -8,6 +10,10 @@ import { validateEnv } from './config/env';
       isGlobal: true,
       cache: true,
       validate: validateEnv,
+    }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => buildLoggerOptions(config),
     }),
   ],
 })
