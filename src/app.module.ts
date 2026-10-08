@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { buildLoggerOptions } from './config/logger';
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => buildLoggerOptions(config),
     }),
+    HealthModule,
   ],
 })
 export class AppModule {}
