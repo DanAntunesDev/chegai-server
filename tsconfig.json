@@ -2,9 +2,7 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2023",
-    "lib": [
-      "ES2023"
-    ],
+    "lib": ["ES2023"],
     "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -22,13 +20,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "paths": {
-      "@/*": [
-        "src/*"
-      ]
+      "@/*": ["src/*"]
     },
-    "types": [
-      "node",
-      "vitest/globals"
-    ]
-  }
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*", "test/**/*", "prisma.config.ts"]
 }
