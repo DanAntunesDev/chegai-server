@@ -7,3 +7,196 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  BLOCKED
+  CANCELED
+}
+
+model Plan {
+  id                      String   @id @default(uuid(7)) @db.Uuid
+  code                    String   @unique
+  name                    String
+  setupFeeCents           Int      @map("setup_fee_cents")
+  monthlyPriceCents       Int      @map("monthly_price_cents")
+  extraUnitPriceCents     Int      @default(0) @map("extra_unit_price_cents")
+  extraUnitSetupFeeCents  Int      @default(0) @map("extra_unit_setup_fee_cents")
+  maxUnits                Int?     @map("max_units")
+  maxBarbers              Int?     @map("max_barbers")
+  maxReceptionists        Int?     @map("max_receptionists")
+  aiConversationsPerMonth Int      @default(0) @map("ai_conversations_per_month")
+  features                String[] @default([])
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenants Tenant[]
+
+  @@map("plans")
+}
+
+model Tenant {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  slug             String       @unique @db.Citext
+  legalName        String       @map("legal_name")
+  displayName      String       @map("display_name")
+  document         String?
+  email            String       @db.Citext
+  phone            String?
+  timezone         String       @default("America/Sao_Paulo")
+  status           TenantStatus @default(TRIAL)
+  planId           String       @map("plan_id") @db.Uuid
+  trialEndsAt      DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+  featureOverrides Json?        @map("feature_overrides")
+  limitOverrides   Json?        @map("limit_overrides")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?    @map("deleted_at") @db.Timestamptz(6)
+
+  plan        Plan            @relation(fields: [planId], references: [id])
+  branding    TenantBranding?
+  units       Unit[]
+  roles       Role[]
+  memberships Membership[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+model TenantBranding {
+  tenantId         String   @id @map("tenant_id") @db.Uuid
+  logoUrl          String?  @map("logo_url")
+  logoDarkUrl      String?  @map("logo_dark_url")
+  iconUrl          String?  @map("icon_url")
+  primaryColor     String   @default("#D62839") @map("primary_color")
+  secondaryColor   String   @default("#1E4FD8") @map("secondary_color")
+  allowOwnerRename Boolean  @default(false) @map("allow_owner_rename")
+  customDomain     String?  @unique @map("custom_domain") @db.Citext
+  showPoweredBy    Boolean  @default(true) @map("show_powered_by")
+  emailSenderName  String?  @map("email_sender_name")
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_brandings")
+}
+
+model Unit {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  name                String
+  slug                String    @db.Citext
+  phone               String?
+  street              String?
+  number              String?
+  district            String?
+  city                String?
+  state               String?   @db.Char(2)
+  zipCode             String?   @map("zip_code")
+  timezone            String    @default("America/Sao_Paulo")
+  slotIntervalMinutes Int       @default(15) @map("slot_interval_minutes")
+  minAdvanceMinutes   Int       @default(30) @map("min_advance_minutes")
+  maxAdvanceDays      Int       @default(30) @map("max_advance_days")
+  isActive            Boolean   @default(true) @map("is_active")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships MembershipUnit[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("units")
+}
+
+model User {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  email           String    @unique @db.Citext
+  name            String
+  passwordHash    String    @map("password_hash")
+  phone           String?
+  isPlatformAdmin Boolean   @default(false) @map("is_platform_admin")
+  totpSecret      String?   @map("totp_secret")
+  totpEnabledAt   DateTime? @map("totp_enabled_at") @db.Timestamptz(6)
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  memberships Membership[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  key         String
+  name        String
+  isSystem    Boolean  @default(false) @map("is_system")
+  permissions String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+
+  @@unique([tenantId, key])
+  @@map("roles")
+}
+
+model Membership {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role             @relation(fields: [roleId], references: [id])
+  units  MembershipUnit[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model MembershipUnit {
+  membershipId String @map("membership_id") @db.Uuid
+  unitId       String @map("unit_id") @db.Uuid
+  tenantId     String @map("tenant_id") @db.Uuid
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  unit       Unit       @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, unitId])
+  @@index([tenantId])
+  @@map("membership_units")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entity      String
+  entityId    String?  @map("entity_id")
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
