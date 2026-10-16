@@ -38,3 +38,47 @@ jobs:
 
       - name: Build
         run: yarn build
+
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: chegai
+          POSTGRES_PASSWORD: chegai
+          POSTGRES_DB: chegai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chegai -d chegai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIGRATION_DATABASE_URL: postgresql://chegai:chegai@localhost:5432/chegai
+      DATABASE_URL: postgresql://chegai_app:chegai_app@localhost:5432/chegai
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      - name: Prepare database roles
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f docker/postgres/init.sql
+
+      - name: Apply migrations
+        run: yarn prisma migrate deploy
+
+      - name: Schema matches migrations
+        run: yarn prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - name: Seed
+        run: yarn db:seed
+
+      - name: Database tests
+        run: yarn test:db
