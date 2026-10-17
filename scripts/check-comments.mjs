@@ -26,28 +26,31 @@ function collectFiles(directory) {
 
 function findComments(path) {
   const text = readFileSync(path, 'utf8');
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    ts.LanguageVariant.Standard,
-    text,
-  );
-  const found = [];
-  let token = scanner.scan();
-  while (token !== ts.SyntaxKind.EndOfFileToken) {
-    if (
-      token === ts.SyntaxKind.SingleLineCommentTrivia ||
-      token === ts.SyntaxKind.MultiLineCommentTrivia
-    ) {
-      const comment = scanner.getTokenText();
-      if (!allowedDirectives.some((pattern) => pattern.test(comment))) {
-        const line = text.slice(0, scanner.getTokenStart()).split('\n').length;
-        found.push(`${path}:${line}  ${comment.split('\n')[0]}`);
-      }
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+  const seen = new Map();
+
+  const collect = (ranges) => {
+    for (const range of ranges ?? []) {
+      seen.set(range.pos, text.slice(range.pos, range.end));
     }
-    token = scanner.scan();
-  }
-  return found;
+  };
+
+  const visit = (node) => {
+    collect(ts.getLeadingCommentRanges(text, node.getFullStart()));
+    collect(ts.getTrailingCommentRanges(text, node.getEnd()));
+    for (const child of node.getChildren(source)) {
+      visit(child);
+    }
+  };
+
+  visit(source);
+
+  return [...seen.entries()]
+    .filter(([, comment]) => !allowedDirectives.some((pattern) => pattern.test(comment)))
+    .map(([position, comment]) => {
+      const line = text.slice(0, position).split('\n').length;
+      return `${path}:${line}  ${comment.split('\n')[0]}`;
+    });
 }
 
 const existingRoots = roots.filter((root) => {
