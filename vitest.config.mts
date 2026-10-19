@@ -26,7 +26,12 @@ export default defineConfig({
       },
       {
         extends: true,
-        test: { name: 'db', include: ['test/db/**/*.db-spec.ts'] },
+        test: {
+          name: 'db',
+          include: ['test/db/**/*.db-spec.ts'],
+          setupFiles: ['test/setup-env.ts'],
+          fileParallelism: false,
+        },
       },
     ],
   },

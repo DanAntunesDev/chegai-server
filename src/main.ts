@@ -1,16 +1,13 @@
 import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { Env } from './config/env';
+import { configureApp } from './app.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  const config = app.get<ConfigService<Env, true>>(ConfigService);
-
   app.useLogger(app.get(Logger));
-  app.enableCors({ origin: config.get('CORS_ORIGINS', { infer: true }), credentials: true });
-  app.enableShutdownHooks();
+
+  const config = configureApp(app);
 
   await app.listen(config.get('PORT', { infer: true }));
 }
