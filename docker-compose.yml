@@ -45,6 +45,17 @@ services:
     volumes:
       - minio-data:/data
 
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 chegai chegai-minio; do sleep 1; done;
+      mc mb --ignore-existing local/chegai;
+      mc anonymous set download local/chegai/tenants;
+      "
+
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped

@@ -5,6 +5,12 @@ const baseEnv = {
   REDIS_URL: 'redis://localhost:6379',
   JWT_ACCESS_SECRET: 'a'.repeat(32),
   ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
+  S3_ENDPOINT: 'http://localhost:9000',
+  S3_BUCKET: 'chegai',
+  S3_ACCESS_KEY: 'chegai',
+  S3_SECRET_KEY: 'chegai-minio',
+  S3_PUBLIC_URL: 'http://localhost:9000/chegai',
+  SMTP_HOST: 'localhost',
 };
 
 describe('validateEnv', () => {

@@ -22,6 +22,19 @@ export const envSchema = z.object({
     message: 'must be 32 bytes encoded in base64',
   }),
   COOKIE_SECURE: booleanFromString,
+  WEB_URL: z.url().default('http://localhost:3000'),
+  S3_ENDPOINT: z.url(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_BUCKET: z.string().min(1),
+  S3_ACCESS_KEY: z.string().min(1),
+  S3_SECRET_KEY: z.string().min(1),
+  S3_PUBLIC_URL: z.url(),
+  S3_FORCE_PATH_STYLE: booleanFromString,
+  SMTP_HOST: z.string().min(1),
+  SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  MAIL_FROM: z.string().default('Chegaí <nao-responda@chegai.app>'),
 });
 
 export type Env = z.infer<typeof envSchema>;
