@@ -6,6 +6,10 @@ import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { InvitationsModule } from './modules/invitations/invitations.module';
+import { MailModule } from './modules/mail/mail.module';
+import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
+import { StorageModule } from './modules/storage/storage.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -21,7 +25,11 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     PrismaModule,
     CryptoModule,
+    StorageModule,
+    MailModule,
+    InvitationsModule,
     AuthModule,
+    PlatformAdminModule,
     HealthModule,
   ],
 })
