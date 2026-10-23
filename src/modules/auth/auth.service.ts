@@ -3,7 +3,7 @@ import { hash, verify } from '@node-rs/argon2';
 import { AppError } from '../../common/errors/app-error';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { PrismaService, type TransactionClient } from '../../prisma/prisma.service';
-import type { LoginInput } from './auth.schemas';
+import type { AcceptInvitationInput, LoginInput } from './auth.schemas';
 import type { AccessTokenPayload, AuthContext, RequestMeta } from './auth.types';
 import { hashToken, TokenService } from './token.service';
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotp } from './totp';
@@ -241,6 +241,85 @@ export class AuthService {
         meta,
       });
     });
+  }
+
+  async previewInvitation(token: string) {
+    return this.prisma.asSystem(async (tx) => {
+      const invitation = await this.findOpenInvitation(tx, token);
+      const existingUser = await tx.user.findFirst({
+        where: { email: invitation.email, deletedAt: null },
+        select: { id: true },
+      });
+
+      return {
+        email: invitation.email,
+        name: invitation.name,
+        barbershop: invitation.tenant.displayName,
+        role: invitation.role.name,
+        expiresAt: invitation.expiresAt,
+        userExists: Boolean(existingUser),
+      };
+    });
+  }
+
+  async acceptInvitation(input: AcceptInvitationInput, meta: RequestMeta): Promise<SessionResult> {
+    return this.prisma.asSystem(async (tx) => {
+      const invitation = await this.findOpenInvitation(tx, input.token);
+      let user = await tx.user.findFirst({ where: { email: invitation.email, deletedAt: null } });
+
+      if (user) {
+        if (!(await verify(user.passwordHash, input.password))) {
+          throw AppError.unauthorized(
+            'INVALID_CREDENTIALS',
+            'This email already has an account; use its current password',
+          );
+        }
+      } else {
+        const name = input.name ?? invitation.name;
+        if (!name) {
+          throw AppError.badRequest('NAME_REQUIRED', 'Name is required to create the account');
+        }
+        user = await tx.user.create({
+          data: { email: invitation.email, name, passwordHash: await hash(input.password) },
+        });
+      }
+
+      await tx.membership.upsert({
+        where: { tenantId_userId: { tenantId: invitation.tenantId, userId: user.id } },
+        update: { roleId: invitation.roleId, isActive: true },
+        create: { tenantId: invitation.tenantId, userId: user.id, roleId: invitation.roleId },
+      });
+
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: new Date() },
+      });
+
+      return this.createSession(tx, {
+        user,
+        tenantId: invitation.tenantId,
+        mfaVerified: false,
+        meta,
+      });
+    });
+  }
+
+  private async findOpenInvitation(tx: TransactionClient, token: string) {
+    const invitation = await tx.invitation.findUnique({
+      where: { tokenHash: hashToken(token) },
+      include: { tenant: true, role: true },
+    });
+
+    if (
+      !invitation ||
+      invitation.acceptedAt ||
+      invitation.expiresAt <= new Date() ||
+      invitation.tenant.deletedAt
+    ) {
+      throw AppError.notFound('INVITATION_NOT_FOUND', 'Invitation is invalid, used or expired');
+    }
+
+    return invitation;
   }
 
   private activeMemberships(tx: TransactionClient, userId: string) {

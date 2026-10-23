@@ -1,10 +1,12 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe';
 import type { Env } from '../../config/env';
 import { AllowWithoutMfa, CurrentAuth, Public } from './auth.decorators';
 import {
+  type AcceptInvitationInput,
+  acceptInvitationSchema,
   type LoginInput,
   loginSchema,
   type SwitchTenantInput,
@@ -62,6 +64,24 @@ export class AuthController {
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     await this.auth.logout(readRefreshCookie(request));
     response.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
+  }
+
+  @Public()
+  @Get('invitations/:token')
+  previewInvitation(@Param('token') token: string) {
+    return this.auth.previewInvitation(token);
+  }
+
+  @Public()
+  @Post('invitations/accept')
+  @HttpCode(200)
+  async acceptInvitation(
+    @Body(new ZodValidationPipe(acceptInvitationSchema)) body: AcceptInvitationInput,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const session = await this.auth.acceptInvitation(body, requestMeta(request));
+    return this.respondWithSession(response, session);
   }
 
   @Get('me')
