@@ -10,6 +10,7 @@ import { InvitationsModule } from './modules/invitations/invitations.module';
 import { MailModule } from './modules/mail/mail.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { TenantModule } from './modules/tenant/tenant.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { PrismaModule } from './prisma/prisma.module';
     InvitationsModule,
     AuthModule,
     PlatformAdminModule,
+    TenantModule,
     HealthModule,
   ],
 })
