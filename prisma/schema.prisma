@@ -8,6 +8,19 @@ datasource db {
   provider = "postgresql"
 }
 
+enum StaffKind {
+  BARBER
+  RECEPTIONIST
+  MANAGER
+}
+
+enum ScheduleBlockKind {
+  VACATION
+  DAY_OFF
+  BREAK
+  BLOCK
+}
+
 enum TenantStatus {
   TRIAL
   ACTIVE
@@ -56,13 +69,17 @@ model Tenant {
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
-  plan        Plan            @relation(fields: [planId], references: [id])
-  branding    TenantBranding?
-  units       Unit[]
-  roles       Role[]
-  memberships Membership[]
-  auditLogs   AuditLog[]
-  invitations Invitation[]
+  plan              Plan              @relation(fields: [planId], references: [id])
+  branding          TenantBranding?
+  units             Unit[]
+  roles             Role[]
+  memberships       Membership[]
+  auditLogs         AuditLog[]
+  invitations       Invitation[]
+  staff             Staff[]
+  services          Service[]
+  serviceCategories ServiceCategory[]
+  customers         Customer[]
 
   @@index([status])
   @@map("tenants")
@@ -107,8 +124,10 @@ model Unit {
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  memberships MembershipUnit[]
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships  MembershipUnit[]
+  staff        StaffUnit[]
+  workingHours WorkingHours[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -241,4 +260,150 @@ model Invitation {
 
   @@index([tenantId])
   @@map("invitations")
+}
+
+model Staff {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  kind      StaffKind @default(BARBER)
+  name      String
+  nickname  String?
+  phone     String?
+  email     String?   @db.Citext
+  photoUrl  String?   @map("photo_url")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  units        StaffUnit[]
+  workingHours WorkingHours[]
+  blocks       ScheduleBlock[]
+  services     StaffService[]
+
+  @@index([tenantId])
+  @@map("staff")
+}
+
+model StaffUnit {
+  staffId  String @map("staff_id") @db.Uuid
+  unitId   String @map("unit_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  unit  Unit  @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, unitId])
+  @@index([tenantId])
+  @@map("staff_units")
+}
+
+model WorkingHours {
+  id          String @id @default(uuid(7)) @db.Uuid
+  tenantId    String @map("tenant_id") @db.Uuid
+  staffId     String @map("staff_id") @db.Uuid
+  unitId      String @map("unit_id") @db.Uuid
+  weekday     Int
+  startMinute Int    @map("start_minute")
+  endMinute   Int    @map("end_minute")
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  unit  Unit  @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([staffId, weekday])
+  @@map("working_hours")
+}
+
+model ScheduleBlock {
+  id        String            @id @default(uuid(7)) @db.Uuid
+  tenantId  String            @map("tenant_id") @db.Uuid
+  staffId   String            @map("staff_id") @db.Uuid
+  kind      ScheduleBlockKind @default(BLOCK)
+  startsAt  DateTime          @map("starts_at") @db.Timestamptz(6)
+  endsAt    DateTime          @map("ends_at") @db.Timestamptz(6)
+  reason    String?
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([staffId, startsAt])
+  @@map("schedule_blocks")
+}
+
+model ServiceCategory {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  services Service[]
+
+  @@unique([tenantId, name])
+  @@map("service_categories")
+}
+
+model Service {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  categoryId      String?   @map("category_id") @db.Uuid
+  name            String
+  description     String?
+  priceCents      Int       @map("price_cents")
+  durationMinutes Int       @map("duration_minutes")
+  bufferMinutes   Int       @default(0) @map("buffer_minutes")
+  position        Int       @default(0)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  staff    StaffService[]
+
+  @@index([tenantId])
+  @@map("services")
+}
+
+model StaffService {
+  staffId         String @map("staff_id") @db.Uuid
+  serviceId       String @map("service_id") @db.Uuid
+  tenantId        String @map("tenant_id") @db.Uuid
+  priceCents      Int?   @map("price_cents")
+  durationMinutes Int?   @map("duration_minutes")
+
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, serviceId])
+  @@index([tenantId])
+  @@map("staff_services")
+}
+
+model Customer {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  name           String
+  phone          String
+  email          String?   @db.Citext
+  birthDate      DateTime? @map("birth_date") @db.Date
+  notes          String?
+  tags           String[]  @default([])
+  marketingOptIn Boolean   @default(true) @map("marketing_opt_in")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, phone])
+  @@index([tenantId, name])
+  @@map("customers")
 }
