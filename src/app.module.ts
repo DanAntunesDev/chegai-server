@@ -13,6 +13,7 @@ import { PlansModule } from './modules/plans/plans.module';
 import { PublicModule } from './modules/public/public.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { TenantModule } from './modules/tenant/tenant.module';
+import { UnitsModule } from './modules/units/units.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PlatformAdminModule,
     TenantModule,
     PublicModule,
+    UnitsModule,
     HealthModule,
   ],
 })

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { AppError } from '../../common/errors/app-error';
+import { isUniqueViolation } from '../../common/errors/prisma-errors';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService, type TransactionClient } from '../../prisma/prisma.service';
 import { SYSTEM_ROLES } from '../access/permissions';
@@ -47,10 +48,6 @@ type TenantDetail = Prisma.TenantGetPayload<{ include: typeof tenantDetailInclud
 
 function toJsonInput(value: unknown) {
   return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 @Injectable()
