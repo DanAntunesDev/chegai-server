@@ -11,6 +11,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { PublicModule } from './modules/public/public.module';
+import { StaffModule } from './modules/staff/staff.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UnitsModule } from './modules/units/units.module';
@@ -38,6 +39,7 @@ import { PrismaModule } from './prisma/prisma.module';
     TenantModule,
     PublicModule,
     UnitsModule,
+    StaffModule,
     HealthModule,
   ],
 })
