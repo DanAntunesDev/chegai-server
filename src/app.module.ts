@@ -5,6 +5,7 @@ import { CryptoModule } from './common/crypto/crypto.module';
 import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
+import { CatalogModule } from './modules/catalog/catalog.module';
 import { HealthModule } from './modules/health/health.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { MailModule } from './modules/mail/mail.module';
@@ -40,6 +41,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PublicModule,
     UnitsModule,
     StaffModule,
+    CatalogModule,
     HealthModule,
   ],
 })
