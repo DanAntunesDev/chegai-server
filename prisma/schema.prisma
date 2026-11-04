@@ -21,6 +21,21 @@ enum ScheduleBlockKind {
   BLOCK
 }
 
+enum BookingStatus {
+  HOLD
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELED
+  NO_SHOW
+}
+
+enum BookingSource {
+  PANEL
+  PUBLIC
+  WHATSAPP
+}
+
 enum TenantStatus {
   TRIAL
   ACTIVE
@@ -80,6 +95,7 @@ model Tenant {
   services          Service[]
   serviceCategories ServiceCategory[]
   customers         Customer[]
+  bookings          Booking[]
 
   @@index([status])
   @@map("tenants")
@@ -128,6 +144,7 @@ model Unit {
   memberships  MembershipUnit[]
   staff        StaffUnit[]
   workingHours WorkingHours[]
+  bookings     Booking[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -282,6 +299,7 @@ model Staff {
   workingHours WorkingHours[]
   blocks       ScheduleBlock[]
   services     StaffService[]
+  bookings     Booking[]
 
   @@index([tenantId])
   @@map("staff")
@@ -364,9 +382,10 @@ model Service {
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  staff    StaffService[]
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category     ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  staff        StaffService[]
+  bookingItems BookingItem[]
 
   @@index([tenantId])
   @@map("services")
@@ -401,9 +420,60 @@ model Customer {
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings Booking[]
 
   @@unique([tenantId, phone])
   @@index([tenantId, name])
   @@map("customers")
+}
+
+model Booking {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  unitId          String        @map("unit_id") @db.Uuid
+  staffId         String        @map("staff_id") @db.Uuid
+  customerId      String?       @map("customer_id") @db.Uuid
+  status          BookingStatus @default(HOLD)
+  source          BookingSource @default(PANEL)
+  startsAt        DateTime      @map("starts_at") @db.Timestamptz(6)
+  endsAt          DateTime      @map("ends_at") @db.Timestamptz(6)
+  blockedUntil    DateTime      @map("blocked_until") @db.Timestamptz(6)
+  holdExpiresAt   DateTime?     @map("hold_expires_at") @db.Timestamptz(6)
+  totalPriceCents Int           @map("total_price_cents")
+  notes           String?
+  canceledAt      DateTime?     @map("canceled_at") @db.Timestamptz(6)
+  cancelReason    String?       @map("cancel_reason")
+  createdById     String?       @map("created_by_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit     Unit          @relation(fields: [unitId], references: [id])
+  staff    Staff         @relation(fields: [staffId], references: [id])
+  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    BookingItem[]
+
+  @@index([tenantId, startsAt])
+  @@index([staffId, startsAt])
+  @@index([customerId])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id              String @id @default(uuid(7)) @db.Uuid
+  tenantId        String @map("tenant_id") @db.Uuid
+  bookingId       String @map("booking_id") @db.Uuid
+  serviceId       String @map("service_id") @db.Uuid
+  name            String
+  priceCents      Int    @map("price_cents")
+  durationMinutes Int    @map("duration_minutes")
+  position        Int    @default(0)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@index([bookingId])
+  @@index([tenantId])
+  @@map("booking_items")
 }
