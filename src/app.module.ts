@@ -5,6 +5,7 @@ import { CryptoModule } from './common/crypto/crypto.module';
 import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
@@ -44,6 +45,7 @@ import { PrismaModule } from './prisma/prisma.module';
     StaffModule,
     CatalogModule,
     CustomersModule,
+    AvailabilityModule,
     HealthModule,
   ],
 })
