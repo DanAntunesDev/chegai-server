@@ -6,6 +6,7 @@ import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
@@ -46,6 +47,7 @@ import { PrismaModule } from './prisma/prisma.module';
     CatalogModule,
     CustomersModule,
     AvailabilityModule,
+    BookingsModule,
     HealthModule,
   ],
 })
