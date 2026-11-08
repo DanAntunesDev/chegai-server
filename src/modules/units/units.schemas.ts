@@ -28,6 +28,7 @@ export const unitFieldsSchema = z.object({
     .min(0)
     .max(7 * 24 * 60),
   maxAdvanceDays: z.number().int().min(1).max(180),
+  noShowAfterMinutes: z.number().int().min(0).max(1440),
 });
 
 export const createUnitSchema = unitFieldsSchema.partial().required({ name: true, slug: true });
