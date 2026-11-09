@@ -10,6 +10,7 @@ export interface AvailabilityRequest {
   date: string;
   serviceIds: string[];
   staffId?: string;
+  excludeBookingId?: string;
   now?: Date;
 }
 
@@ -75,6 +76,7 @@ export class AvailabilityService {
 
     const bookings = await tx.booking.findMany({
       where: {
+        id: request.excludeBookingId ? { not: request.excludeBookingId } : undefined,
         staffId: { in: staffIds },
         startsAt: { lt: dayEnd },
         blockedUntil: { gt: dayStart },
