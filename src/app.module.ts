@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { CryptoModule } from './common/crypto/crypto.module';
+import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
@@ -34,6 +35,7 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     PrismaModule,
     CryptoModule,
+    IdempotencyModule,
     StorageModule,
     MailModule,
     InvitationsModule,
