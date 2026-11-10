@@ -10,3 +10,4 @@ process.env.S3_ACCESS_KEY ??= 'chegai';
 process.env.S3_SECRET_KEY ??= 'chegai-minio';
 process.env.S3_PUBLIC_URL ??= 'http://localhost:9000/chegai';
 process.env.SMTP_HOST ??= 'localhost';
+process.env.BOOKING_SWEEP_INTERVAL_SECONDS ??= '0';
