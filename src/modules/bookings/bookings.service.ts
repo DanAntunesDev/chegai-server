@@ -14,9 +14,6 @@ import type {
   RescheduleBookingInput,
 } from './bookings.schemas';
 
-export const HOLD_TTL_MS = 5 * 60 * 1000;
-export const CHECK_IN_WINDOW_MS = 60 * 60 * 1000;
-
 const bookingInclude = {
   items: { orderBy: { position: 'asc' as const } },
   staff: { select: { id: true, name: true, nickname: true } },
@@ -61,7 +58,7 @@ export class BookingsService {
       this.prisma.withTenant(tenantId, async (tx) => {
         await this.releaseExpiredHolds(tx, now);
 
-        const { staffId, offer } = await this.pickSlot(tx, {
+        const { unit, staffId, offer } = await this.pickSlot(tx, {
           unitId: input.unitId,
           serviceIds: input.serviceIds,
           staffId: input.staffId,
@@ -83,7 +80,7 @@ export class BookingsService {
             startsAt,
             endsAt,
             blockedUntil: new Date(endsAt.getTime() + offer.bufferMinutes * 60000),
-            holdExpiresAt: new Date(now.getTime() + HOLD_TTL_MS),
+            holdExpiresAt: new Date(now.getTime() + unit.holdMinutes * 60000),
             totalPriceCents: offer.items.reduce((sum, item) => sum + item.priceCents, 0),
             createdById: actorUserId,
             items: {
@@ -210,8 +207,11 @@ export class BookingsService {
         throw AppError.conflict('BOOKING_NOT_CONFIRMED', 'Only confirmed bookings can check in');
       }
       const now = new Date();
-      if (now.getTime() < booking.startsAt.getTime() - CHECK_IN_WINDOW_MS) {
-        throw AppError.conflict('CHECK_IN_TOO_EARLY', 'Check-in opens one hour before the time');
+      const unit = await tx.unit.findUniqueOrThrow({ where: { id: booking.unitId } });
+      if (now.getTime() < booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000) {
+        throw AppError.conflict('CHECK_IN_TOO_EARLY', 'Check-in is not open yet', {
+          opensAt: new Date(booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000),
+        });
       }
       return this.transition(tx, {
         booking,
@@ -369,7 +369,7 @@ export class BookingsService {
     if (!slot || !staffId || !offer || !slot.staffIds.includes(staffId)) {
       throw AppError.conflict('SLOT_UNAVAILABLE', 'This time is not available');
     }
-    return { staffId, offer };
+    return { unit, staffId, offer };
   }
 
   private async transition(tx: TransactionClient, input: TransitionInput) {

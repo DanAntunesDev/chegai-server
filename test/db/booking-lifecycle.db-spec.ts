@@ -365,4 +365,40 @@ describe('booking lifecycle', () => {
     const joaoBooking = (all.body as Booking[]).find((booking) => booking.staff.id === joao);
     await request(server()).get(`/v1/bookings/${joaoBooking?.id}`).set(barberAuth).expect(404);
   });
+  it('uses the hold and check-in rules configured for the unit', async () => {
+    await request(server())
+      .patch(`/v1/units/${unitId}`)
+      .set(auth)
+      .send({ holdMinutes: 12, checkInOpensMinutes: 0 })
+      .expect(200);
+
+    const before = Date.now();
+    const hold = await request(server())
+      .post('/v1/bookings/holds')
+      .set(auth)
+      .send({ unitId, serviceIds: [corte], staffId: joao, startsAt: await startOf('10:30', joao) })
+      .expect(201);
+    const ttl = new Date(hold.body.holdExpiresAt as string).getTime() - before;
+    expect(ttl).toBeGreaterThan(11 * 60000);
+    expect(ttl).toBeLessThanOrEqual(12 * 60000 + 5000);
+
+    const confirmed = await request(server())
+      .post(`/v1/bookings/${hold.body.id}/confirm`)
+      .set(auth)
+      .send({ customer: { name: 'Cliente Regra', phone: '38993334444' } })
+      .expect(200);
+    await moveTo(confirmed.body.id as string, new Date(Date.now() + 20 * 60000));
+
+    const early = await request(server())
+      .post(`/v1/bookings/${confirmed.body.id}/check-in`)
+      .set(auth)
+      .expect(409);
+    expect(early.body.code).toBe('CHECK_IN_TOO_EARLY');
+
+    await request(server())
+      .patch(`/v1/units/${unitId}`)
+      .set(auth)
+      .send({ holdMinutes: 5, checkInOpensMinutes: 60 })
+      .expect(200);
+  });
 });

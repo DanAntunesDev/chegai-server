@@ -136,6 +136,8 @@ model Unit {
   minAdvanceMinutes   Int       @default(30) @map("min_advance_minutes")
   maxAdvanceDays      Int       @default(30) @map("max_advance_days")
   noShowAfterMinutes  Int       @default(30) @map("no_show_after_minutes")
+  holdMinutes         Int       @default(5) @map("hold_minutes")
+  checkInOpensMinutes Int       @default(60) @map("check_in_opens_minutes")
   isActive            Boolean   @default(true) @map("is_active")
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
