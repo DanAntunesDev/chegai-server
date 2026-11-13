@@ -24,15 +24,25 @@ jobs:
       - name: Publish the next commit from develop
         run: |
           set -euo pipefail
-          git fetch origin develop:refs/remotes/origin/develop '+refs/publish/*:refs/publish/*'
+          git fetch origin develop:refs/remotes/origin/develop
 
-          if ! git rev-parse -q --verify refs/publish/last >/dev/null; then
-            echo "refs/publish/last is missing" >&2
+          published_tree=$(git rev-parse HEAD^{tree})
+          mapfile -t queue < <(git rev-list --first-parent origin/develop)
+          last=""
+          for sha in "${queue[@]}"; do
+            if [ "$(git rev-parse "$sha^{tree}")" = "$published_tree" ]; then
+              last="$sha"
+              break
+            fi
+          done
+
+          if [ -z "$last" ]; then
+            echo "main does not match any commit on develop" >&2
             exit 1
           fi
 
-          next=$(git rev-list --reverse --first-parent refs/publish/last..origin/develop | head -n 1)
-          pending=$(git rev-list --count --first-parent refs/publish/last..origin/develop)
+          next=$(git rev-list --reverse --first-parent "$last..origin/develop" | head -n 1)
+          pending=$(git rev-list --count --first-parent "$last..origin/develop")
 
           if [ -z "$next" ]; then
             echo "Nothing waiting on develop." >> "$GITHUB_STEP_SUMMARY"
@@ -49,7 +59,6 @@ jobs:
 
           commit=$(git log -1 --format=%B "$next" | git commit-tree "$next^{tree}" -p HEAD)
           git push origin "$commit:refs/heads/main"
-          git push origin "+$next:refs/publish/last"
 
           {
             echo "Published: $(git log -1 --format=%s "$next")"
