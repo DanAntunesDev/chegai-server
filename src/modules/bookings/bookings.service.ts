@@ -120,6 +120,100 @@ export class BookingsService {
     });
   }
 
+  confirmPublic(
+    tenantId: string,
+    id: string,
+    customer: { phone: string; name: string; notes?: string },
+  ) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const booking = await this.find(tx, id);
+      if (booking.source !== 'PUBLIC') {
+        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+      }
+      this.assertHoldAlive(booking);
+
+      const record = await tx.customer.upsert({
+        where: { tenantId_phone: { tenantId, phone: customer.phone } },
+        update: { deletedAt: null },
+        create: { tenantId, phone: customer.phone, name: customer.name },
+      });
+      const confirmed = await this.transition(tx, {
+        booking,
+        to: 'CONFIRMED',
+        actorUserId: null,
+        reason: 'CUSTOMER',
+        data: { holdExpiresAt: null, customerId: record.id, notes: customer.notes },
+      });
+      return this.presentPublic(confirmed);
+    });
+  }
+
+  listForCustomer(tenantId: string, phone: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const bookings = await tx.booking.findMany({
+        where: {
+          customer: { phone },
+          status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+          startsAt: { gte: new Date() },
+        },
+        include: bookingInclude,
+        orderBy: { startsAt: 'asc' },
+        take: 20,
+      });
+      return bookings.map((booking) => this.presentPublic(booking));
+    });
+  }
+
+  cancelByCustomer(tenantId: string, id: string, phone: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const booking = await this.find(tx, id);
+      if (booking.customer?.phone !== phone) {
+        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+      }
+      if (booking.status !== 'CONFIRMED' || booking.startsAt <= new Date()) {
+        throw AppError.conflict('BOOKING_NOT_CANCELABLE', 'This booking can no longer be canceled');
+      }
+      const now = new Date();
+      const canceled = await this.transition(tx, {
+        booking,
+        to: 'CANCELED',
+        actorUserId: null,
+        reason: 'CUSTOMER',
+        data: { canceledAt: now, cancelReason: 'Cancelado pelo cliente' },
+      });
+      return this.presentPublic(canceled);
+    });
+  }
+
+  presentPublic(booking: {
+    id: string;
+    status: BookingStatus;
+    startsAt: Date;
+    endsAt: Date;
+    holdExpiresAt: Date | null;
+    totalPriceCents: number;
+    unitId: string;
+    staff: { id: string; name: string; nickname: string | null };
+    items: { serviceId: string; name: string; priceCents: number; durationMinutes: number }[];
+  }) {
+    return {
+      id: booking.id,
+      status: booking.status,
+      unitId: booking.unitId,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      holdExpiresAt: booking.holdExpiresAt,
+      totalPriceCents: booking.totalPriceCents,
+      staff: { id: booking.staff.id, name: booking.staff.nickname ?? booking.staff.name },
+      items: booking.items.map((item) => ({
+        serviceId: item.serviceId,
+        name: item.name,
+        priceCents: item.priceCents,
+        durationMinutes: item.durationMinutes,
+      })),
+    };
+  }
+
   reschedule(auth: TenantAuthContext, id: string, input: RescheduleBookingInput) {
     const now = new Date();
     const startsAt = new Date(input.startsAt);
