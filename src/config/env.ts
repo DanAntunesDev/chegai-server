@@ -34,6 +34,8 @@ export const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
+  RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
+  TRUST_PROXY: booleanFromString,
   BOOKING_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(300),
   MAIL_FROM: z.string().default('Chegaí <nao-responda@chegai.app>'),
 });
