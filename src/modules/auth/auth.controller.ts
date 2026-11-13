@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe';
 import type { Env } from '../../config/env';
-import { AllowWithoutMfa, CurrentAuth, Public } from './auth.decorators';
+import { AllowWhenBlocked, AllowWithoutMfa, CurrentAuth, Public } from './auth.decorators';
 import {
   type AcceptInvitationInput,
   acceptInvitationSchema,
@@ -32,6 +32,7 @@ function readRefreshCookie(request: Request): string | undefined {
   return cookies?.[REFRESH_COOKIE];
 }
 
+@AllowWhenBlocked()
 @Controller('auth')
 export class AuthController {
   constructor(

@@ -9,6 +9,7 @@ import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
 import { AuthModule } from './modules/auth/auth.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -67,6 +68,7 @@ import { PrismaModule } from './prisma/prisma.module';
     CustomersModule,
     AvailabilityModule,
     BookingsModule,
+    BillingModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

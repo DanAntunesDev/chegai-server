@@ -7,6 +7,7 @@ export const IS_PUBLIC_KEY = 'auth:public';
 export const PERMISSIONS_KEY = 'auth:permissions';
 export const PLATFORM_ADMIN_KEY = 'auth:platform-admin';
 export const ALLOW_WITHOUT_MFA_KEY = 'auth:allow-without-mfa';
+export const ALLOW_WHEN_BLOCKED_KEY = 'auth:allow-when-blocked';
 
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
@@ -16,6 +17,8 @@ export const RequirePermissions = (...permissions: Permission[]) =>
 export const PlatformAdminOnly = () => SetMetadata(PLATFORM_ADMIN_KEY, true);
 
 export const AllowWithoutMfa = () => SetMetadata(ALLOW_WITHOUT_MFA_KEY, true);
+
+export const AllowWhenBlocked = () => SetMetadata(ALLOW_WHEN_BLOCKED_KEY, true);
 
 export const CurrentAuth = createParamDecorator((_data: unknown, context: ExecutionContext) => {
   const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
