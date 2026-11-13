@@ -1,4 +1,9 @@
 import type {
+  CreatedCharge,
+  GatewayCharge,
+  GatewayCustomer,
+} from '../../src/modules/billing/payment-gateway';
+import type {
   CustomerMessenger,
   VerificationMessage,
 } from '../../src/modules/messaging/customer-messenger';
@@ -37,5 +42,32 @@ export class FakeCustomerMessenger implements CustomerMessenger {
       throw new Error(`no code sent to ${phone}`);
     }
     return found.code;
+  }
+}
+
+export const FAKE_WEBHOOK_TOKEN = 'test-webhook-token-123';
+
+export class FakePaymentGateway {
+  readonly name = 'asaas';
+  readonly customers: GatewayCustomer[] = [];
+  readonly charges: (GatewayCharge & { id: string })[] = [];
+
+  createCustomer(customer: GatewayCustomer): Promise<string> {
+    this.customers.push(customer);
+    return Promise.resolve(`cus_${this.customers.length}`);
+  }
+
+  createCharge(charge: GatewayCharge): Promise<CreatedCharge> {
+    const id = `pay_${this.charges.length + 1}_${charge.reference.slice(0, 8)}`;
+    this.charges.push({ ...charge, id });
+    return Promise.resolve({ id, paymentUrl: `https://sandbox.test/i/${id}` });
+  }
+
+  cancelCharge(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  verifyWebhook(token: string | undefined): boolean {
+    return token === FAKE_WEBHOOK_TOKEN;
   }
 }
