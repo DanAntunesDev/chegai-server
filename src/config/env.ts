@@ -5,6 +5,8 @@ const booleanFromString = z
   .default('false')
   .transform((value) => value === 'true');
 
+const blankAsMissing = (value: unknown) => (value === '' ? undefined : value);
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
@@ -38,8 +40,8 @@ export const envSchema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
   TRUST_PROXY: booleanFromString,
   ASAAS_API_URL: z.url().default('https://api-sandbox.asaas.com/v3'),
-  ASAAS_API_KEY: z.string().min(1).optional(),
-  ASAAS_WEBHOOK_TOKEN: z.string().min(16).optional(),
+  ASAAS_API_KEY: z.preprocess(blankAsMissing, z.string().min(1).optional()),
+  ASAAS_WEBHOOK_TOKEN: z.preprocess(blankAsMissing, z.string().min(16).optional()),
   BILLING_JOB_ENABLED: booleanFromString,
   BILLING_GRACE_BUSINESS_DAYS: z.coerce.number().int().min(0).max(30).default(5),
   BOOKING_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(300),

@@ -24,6 +24,13 @@ describe('validateEnv', () => {
     expect(env.COOKIE_SECURE).toBe(false);
   });
 
+  it('treats blank payment credentials as not configured', () => {
+    const env = validateEnv({ ...baseEnv, ASAAS_API_KEY: '', ASAAS_WEBHOOK_TOKEN: '' });
+
+    expect(env.ASAAS_API_KEY).toBeUndefined();
+    expect(env.ASAAS_WEBHOOK_TOKEN).toBeUndefined();
+  });
+
   it('splits multiple cors origins', () => {
     const env = validateEnv({
       ...baseEnv,
