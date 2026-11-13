@@ -235,6 +235,85 @@ async function seedDemoOperation(tenantId: string) {
   await prisma.customer.createMany({
     data: DEMO_CUSTOMERS.map((customer) => ({ tenantId, ...customer })),
   });
+
+  await seedDemoBookings(tenantId, unit.id);
+}
+
+const DEMO_SLOTS = ['09:00', '10:15', '14:00', '15:15', '16:30', '17:45'];
+
+function localDate(offsetDays: number) {
+  const now = new Date(Date.now() - 3 * 3600_000 + offsetDays * 86_400_000);
+  return now.toISOString().slice(0, 10);
+}
+
+async function seedDemoBookings(tenantId: string, unitId: string) {
+  const staff = await prisma.staff.findMany({ where: { tenantId }, orderBy: { name: 'asc' } });
+  const services = await prisma.service.findMany({
+    where: { tenantId },
+    orderBy: { position: 'asc' },
+  });
+  const customers = await prisma.customer.findMany({
+    where: { tenantId },
+    orderBy: { name: 'asc' },
+  });
+  let counter = 0;
+
+  for (let offset = -30; offset <= 2; offset += 1) {
+    const date = localDate(offset);
+    const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+    if (weekday === 0) {
+      continue;
+    }
+    for (const [staffIndex, member] of staff.entries()) {
+      for (const [slotIndex, time] of DEMO_SLOTS.entries()) {
+        counter += 1;
+        if ((counter + staffIndex + Math.abs(offset)) % 3 === 0) {
+          continue;
+        }
+        const service = services[(slotIndex + staffIndex) % services.length];
+        const customer =
+          customers[
+            (((counter + offset * 7) % customers.length) + customers.length) % customers.length
+          ];
+        const startsAt = new Date(`${date}T${time}:00-03:00`);
+        const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60_000);
+        const past = endsAt.getTime() < Date.now();
+        const status = past
+          ? counter % 11 === 0
+            ? 'NO_SHOW'
+            : counter % 13 === 0
+              ? 'CANCELED'
+              : 'COMPLETED'
+          : 'CONFIRMED';
+        await prisma.booking.create({
+          data: {
+            tenantId,
+            unitId,
+            staffId: member.id,
+            customerId: customer.id,
+            status,
+            source: counter % 4 === 0 ? 'WHATSAPP' : counter % 4 === 1 ? 'PUBLIC' : 'PANEL',
+            startsAt,
+            endsAt,
+            blockedUntil: new Date(endsAt.getTime() + service.bufferMinutes * 60_000),
+            totalPriceCents: service.priceCents,
+            completedAt: status === 'COMPLETED' ? endsAt : null,
+            canceledAt: status === 'CANCELED' ? startsAt : null,
+            cancelReason: status === 'CANCELED' ? 'Cliente pediu para cancelar' : null,
+            items: {
+              create: {
+                tenantId,
+                serviceId: service.id,
+                name: service.name,
+                priceCents: service.priceCents,
+                durationMinutes: service.durationMinutes,
+              },
+            },
+          },
+        });
+      }
+    }
+  }
 }
 
 async function main() {
