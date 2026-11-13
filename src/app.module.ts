@@ -7,6 +7,7 @@ import { CryptoModule } from './common/crypto/crypto.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { type Env, validateEnv } from './config/env';
 import { buildLoggerOptions } from './config/logger';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -70,6 +71,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AvailabilityModule,
     BookingsModule,
     BillingModule,
+    AnalyticsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
