@@ -158,6 +158,83 @@ async function seedDemoTenant() {
     update: {},
     create: { tenantId: tenant.id, userId: owner.id, roleId: ownerRole.id },
   });
+
+  await seedDemoOperation(tenant.id);
+}
+
+const DEMO_SERVICES = [
+  { category: 'Cabelo', name: 'Corte', priceCents: 4500, durationMinutes: 30 },
+  { category: 'Cabelo', name: 'Corte degradê', priceCents: 5000, durationMinutes: 40 },
+  { category: 'Barba', name: 'Barba', priceCents: 3500, durationMinutes: 30 },
+  { category: 'Combos', name: 'Corte + barba', priceCents: 7500, durationMinutes: 60 },
+  { category: 'Cabelo', name: 'Sobrancelha', priceCents: 1500, durationMinutes: 10 },
+];
+
+const DEMO_BARBERS = ['Rafael', 'Bruno', 'Thiago'];
+
+const DEMO_CUSTOMERS = [
+  { name: 'João Pereira', phone: '+5538991110001', tags: ['vip'] },
+  { name: 'Lucas Martins', phone: '+5538991110002', tags: [] },
+  { name: 'Pedro Alves', phone: '+5538991110003', tags: ['barba'] },
+  { name: 'Gabriel Souza', phone: '+5538991110004', tags: [] },
+  { name: 'Matheus Rocha', phone: '+5538991110005', tags: ['vip', 'mensal'] },
+];
+
+async function seedDemoOperation(tenantId: string) {
+  if ((await prisma.service.count({ where: { tenantId } })) > 0) {
+    return;
+  }
+  const unit = await prisma.unit.findFirstOrThrow({ where: { tenantId, slug: 'centro' } });
+
+  const categories = new Map<string, string>();
+  for (const [position, name] of ['Cabelo', 'Barba', 'Combos'].entries()) {
+    const category = await prisma.serviceCategory.create({ data: { tenantId, name, position } });
+    categories.set(name, category.id);
+  }
+
+  const services = [];
+  for (const [position, item] of DEMO_SERVICES.entries()) {
+    services.push(
+      await prisma.service.create({
+        data: {
+          tenantId,
+          categoryId: categories.get(item.category),
+          name: item.name,
+          priceCents: item.priceCents,
+          durationMinutes: item.durationMinutes,
+          bufferMinutes: 5,
+          position,
+        },
+      }),
+    );
+  }
+
+  for (const name of DEMO_BARBERS) {
+    const staff = await prisma.staff.create({
+      data: { tenantId, name, kind: 'BARBER', units: { create: { unitId: unit.id, tenantId } } },
+    });
+    const days = name === 'Thiago' ? [2, 3, 4, 5, 6] : [1, 2, 3, 4, 5, 6];
+    await prisma.workingHours.createMany({
+      data: days.flatMap((weekday) => [
+        { tenantId, staffId: staff.id, unitId: unit.id, weekday, startMinute: 540, endMinute: 720 },
+        {
+          tenantId,
+          staffId: staff.id,
+          unitId: unit.id,
+          weekday,
+          startMinute: 780,
+          endMinute: weekday === 6 ? 960 : 1140,
+        },
+      ]),
+    });
+    await prisma.staffService.createMany({
+      data: services.map((service) => ({ tenantId, staffId: staff.id, serviceId: service.id })),
+    });
+  }
+
+  await prisma.customer.createMany({
+    data: DEMO_CUSTOMERS.map((customer) => ({ tenantId, ...customer })),
+  });
 }
 
 async function main() {
