@@ -97,6 +97,58 @@ export class AnalyticsService {
     });
   }
 
+  breakdown(auth: TenantAuthContext, query: SummaryQuery) {
+    return this.prisma.withTenant(auth.tenantId, async (tx) => {
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: auth.tenantId },
+        select: { timezone: true },
+      });
+      const { start, end } = await this.window(tx, query.month, tenant.timezone, query.unitId);
+      const unitFilter = query.unitId
+        ? Prisma.sql`AND b.unit_id = ${query.unitId}::uuid`
+        : Prisma.empty;
+      const days = await tx.$queryRaw<{ date: string; revenue_cents: number; completed: number }[]>`
+        SELECT to_char(day, 'YYYY-MM-DD') AS date,
+               COALESCE(SUM(b.total_price_cents) FILTER (WHERE b.status = 'COMPLETED'), 0)::int AS revenue_cents,
+               COUNT(b.id) FILTER (WHERE b.status = 'COMPLETED')::int AS completed
+          FROM generate_series(
+                 (${start}::timestamptz AT TIME ZONE ${tenant.timezone})::date,
+                 (${end}::timestamptz AT TIME ZONE ${tenant.timezone})::date - 1,
+                 interval '1 day'
+               ) AS day
+          LEFT JOIN bookings b
+            ON (b.starts_at AT TIME ZONE ${tenant.timezone})::date = day::date
+           AND b.starts_at >= ${start} AND b.starts_at < ${end} ${unitFilter}
+         GROUP BY day
+         ORDER BY day`;
+      const staff = await tx.$queryRaw<
+        { staff_id: string; name: string; revenue_cents: number; completed: number }[]
+      >`
+        SELECT s.id AS staff_id, COALESCE(s.nickname, s.name) AS name,
+               COALESCE(SUM(b.total_price_cents), 0)::int AS revenue_cents,
+               COUNT(b.id)::int AS completed
+          FROM bookings b
+          JOIN staff s ON s.id = b.staff_id
+         WHERE b.status = 'COMPLETED' AND b.starts_at >= ${start} AND b.starts_at < ${end} ${unitFilter}
+         GROUP BY s.id, s.nickname, s.name
+         ORDER BY revenue_cents DESC`;
+      return {
+        month: query.month,
+        days: days.map((row) => ({
+          date: row.date,
+          revenueCents: row.revenue_cents,
+          completedBookings: row.completed,
+        })),
+        staff: staff.map((row) => ({
+          staffId: row.staff_id,
+          name: row.name,
+          revenueCents: row.revenue_cents,
+          completedBookings: row.completed,
+        })),
+      };
+    });
+  }
+
   private async window(
     tx: TransactionClient,
     month: string,

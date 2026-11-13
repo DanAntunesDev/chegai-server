@@ -105,6 +105,23 @@ describe('analytics and api docs', () => {
     expect(response.body.change.revenue).toBe(200);
   });
 
+  it('breaks the month down by day and barber', async () => {
+    const response = await request(server())
+      .get('/v1/analytics/breakdown')
+      .query({ month: '2026-11' })
+      .set(ownerAuth)
+      .expect(200);
+
+    const days = response.body.days as { date: string; revenueCents: number }[];
+    expect(days).toHaveLength(30);
+    expect(days[0]?.date).toBe('2026-11-01');
+    expect(days.find((day) => day.date === '2026-11-09')?.revenueCents).toBe(7000);
+    expect(days.find((day) => day.date === '2026-11-16')?.revenueCents).toBe(0);
+    expect(response.body.staff).toEqual([
+      expect.objectContaining({ staffId, revenueCents: 12000, completedBookings: 2 }),
+    ]);
+  });
+
   it('requires the analytics permission', async () => {
     const barberAuth = {
       Authorization: `Bearer ${await ctx.tokenFor({ tid: tenantId, role: 'BARBER', perms: ['bookings.view.own'] })}`,

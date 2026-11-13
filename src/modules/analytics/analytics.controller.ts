@@ -17,4 +17,13 @@ export class AnalyticsController {
   ) {
     return this.analytics.summary(auth, query);
   }
+
+  @RequirePermissions('analytics.view')
+  @Get('breakdown')
+  breakdown(
+    @CurrentTenant() auth: TenantAuthContext,
+    @Query(new ZodValidationPipe(summaryQuerySchema)) query: SummaryQuery,
+  ) {
+    return this.analytics.breakdown(auth, query);
+  }
 }
