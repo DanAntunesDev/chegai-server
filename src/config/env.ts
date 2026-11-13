@@ -36,6 +36,11 @@ export const envSchema = z.object({
   SMTP_PASSWORD: z.string().optional(),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
   TRUST_PROXY: booleanFromString,
+  ASAAS_API_URL: z.url().default('https://api-sandbox.asaas.com/v3'),
+  ASAAS_API_KEY: z.string().min(1).optional(),
+  ASAAS_WEBHOOK_TOKEN: z.string().min(16).optional(),
+  BILLING_JOB_ENABLED: booleanFromString,
+  BILLING_GRACE_BUSINESS_DAYS: z.coerce.number().int().min(0).max(30).default(5),
   BOOKING_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(300),
   MAIL_FROM: z.string().default('Chegaí <nao-responda@chegai.app>'),
 });
