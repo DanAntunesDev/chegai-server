@@ -1,0 +1,57 @@
+name: Daily publish
+
+"on":
+  schedule:
+    - cron: "37 21 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Publish the next commit from develop
+        run: |
+          set -euo pipefail
+          git fetch origin develop:refs/remotes/origin/develop '+refs/publish/*:refs/publish/*'
+
+          if ! git rev-parse -q --verify refs/publish/last >/dev/null; then
+            echo "refs/publish/last is missing" >&2
+            exit 1
+          fi
+
+          next=$(git rev-list --reverse --first-parent refs/publish/last..origin/develop | head -n 1)
+          pending=$(git rev-list --count --first-parent refs/publish/last..origin/develop)
+
+          if [ -z "$next" ]; then
+            echo "Nothing waiting on develop." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          now=$(TZ=America/Sao_Paulo date '+%Y-%m-%dT%H:%M:%S%z')
+          export GIT_AUTHOR_NAME="$(git log -1 --format=%an "$next")"
+          export GIT_AUTHOR_EMAIL="$(git log -1 --format=%ae "$next")"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          export GIT_AUTHOR_DATE="$now"
+          export GIT_COMMITTER_DATE="$now"
+
+          commit=$(git log -1 --format=%B "$next" | git commit-tree "$next^{tree}" -p HEAD)
+          git push origin "$commit:refs/heads/main"
+          git push origin "+$next:refs/publish/last"
+
+          {
+            echo "Published: $(git log -1 --format=%s "$next")"
+            echo "Still waiting: $((pending - 1))"
+          } >> "$GITHUB_STEP_SUMMARY"
