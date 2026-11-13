@@ -1,8 +1,8 @@
 name: Daily publish
 
-"on":
+'on':
   schedule:
-    - cron: "37 21 * * *"
+    - cron: '37 21 * * *'
   workflow_dispatch: {}
 
 permissions:
