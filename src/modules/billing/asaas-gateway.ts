@@ -8,6 +8,7 @@ import {
   type GatewayCharge,
   type GatewayCustomer,
   PaymentGateway,
+  type PixCode,
 } from './payment-gateway';
 
 interface AsaasError {
@@ -55,6 +56,19 @@ export class AsaasGateway extends PaymentGateway {
 
   async cancelCharge(id: string): Promise<void> {
     await this.request('DELETE', `/payments/${encodeURIComponent(id)}`);
+  }
+
+  async pixCode(id: string): Promise<PixCode> {
+    const body = await this.request<{
+      encodedImage: string;
+      payload: string;
+      expirationDate?: string;
+    }>('GET', `/payments/${encodeURIComponent(id)}/pixQrCode`);
+    return {
+      image: body.encodedImage,
+      payload: body.payload,
+      expiresAt: body.expirationDate ?? null,
+    };
   }
 
   verifyWebhook(token: string | undefined): boolean {

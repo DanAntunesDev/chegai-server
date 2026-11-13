@@ -42,6 +42,16 @@ export class BillingController {
     return this.billing.summary(auth.tenantId);
   }
 
+  @AllowWhenBlocked()
+  @RequirePermissions('billing.view')
+  @Get('tenant/billing/invoices/:invoiceId/pix')
+  pix(
+    @CurrentTenant() auth: TenantAuthContext,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
+  ) {
+    return this.billing.pixFor(auth.tenantId, invoiceId);
+  }
+
   @PlatformAdminOnly()
   @Post('admin/tenants/:id/subscription')
   start(

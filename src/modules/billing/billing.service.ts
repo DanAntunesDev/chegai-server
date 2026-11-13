@@ -98,6 +98,22 @@ export class BillingService {
     return this.summary(tenantId);
   }
 
+  async pixFor(tenantId: string, invoiceId: string) {
+    const invoice = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.invoice.findFirst({
+        where: { id: invoiceId },
+        select: { status: true, providerPaymentId: true },
+      }),
+    );
+    if (!invoice) {
+      throw AppError.notFound('INVOICE_NOT_FOUND', 'Invoice not found');
+    }
+    if (invoice.status === 'PAID' || invoice.status === 'CANCELED' || !invoice.providerPaymentId) {
+      throw AppError.conflict('INVOICE_NOT_PAYABLE', 'This invoice cannot be paid now');
+    }
+    return this.gateway.pixCode(invoice.providerPaymentId);
+  }
+
   summary(tenantId: string) {
     return this.prisma.withTenant(tenantId, async (tx) => ({
       subscription: await tx.subscription.findUnique({

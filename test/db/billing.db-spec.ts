@@ -7,6 +7,7 @@ import { FAKE_WEBHOOK_TOKEN } from '../support/fakes';
 import { createTestApp, type TestApp } from '../support/app';
 
 type Invoice = {
+  id: string;
   kind: string;
   period: string;
   status: string;
@@ -140,6 +141,17 @@ describe('billing and blocking', () => {
     const blocked = await request(server()).get('/v1/units').set(ownerAuth).expect(402);
     expect(blocked.body.code).toBe('TENANT_BLOCKED');
     await request(server()).get('/v1/tenant/billing').set(ownerAuth).expect(200);
+    const overdue = (await invoices()).find((invoice) => invoice.status === 'OVERDUE');
+    const pix = await request(server())
+      .get(`/v1/tenant/billing/invoices/${overdue?.id}/pix`)
+      .set(ownerAuth)
+      .expect(200);
+    expect(pix.body.payload).toMatch(/^pix-/);
+    const paid = (await invoices()).find((invoice) => invoice.status === 'PAID');
+    await request(server())
+      .get(`/v1/tenant/billing/invoices/${paid?.id}/pix`)
+      .set(ownerAuth)
+      .expect(409);
     await request(server()).get(`/v1/public/tenants/${slug}`).expect(404);
 
     await notify('PAYMENT_CONFIRMED', chargeFor('Mensalidade')).expect(200);

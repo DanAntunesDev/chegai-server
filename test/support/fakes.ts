@@ -2,6 +2,7 @@ import type {
   CreatedCharge,
   GatewayCharge,
   GatewayCustomer,
+  PixCode,
 } from '../../src/modules/billing/payment-gateway';
 import type {
   CustomerMessenger,
@@ -70,6 +71,10 @@ export class FakePaymentGateway {
 
   cancelCharge(): Promise<void> {
     return Promise.resolve();
+  }
+
+  pixCode(id: string): Promise<PixCode> {
+    return Promise.resolve({ image: 'iVBORw0KGgo=', payload: `pix-${id}`, expiresAt: null });
   }
 
   verifyWebhook(token: string | undefined): boolean {
