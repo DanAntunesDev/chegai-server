@@ -34,6 +34,7 @@ export const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
+  API_DOCS_ENABLED: booleanFromString,
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
   TRUST_PROXY: booleanFromString,
   ASAAS_API_URL: z.url().default('https://api-sandbox.asaas.com/v3'),
