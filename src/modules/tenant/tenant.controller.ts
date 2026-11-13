@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Patch } from '@nestjs/common';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe';
-import { CurrentTenant, RequirePermissions } from '../auth/auth.decorators';
+import { AllowWhenBlocked, CurrentTenant, RequirePermissions } from '../auth/auth.decorators';
 import type { TenantAuthContext } from '../auth/auth.types';
 import { TenantService } from './tenant.service';
 
@@ -12,6 +12,7 @@ export class TenantController {
   constructor(private readonly tenant: TenantService) {}
 
   @Get()
+  @AllowWhenBlocked()
   current(@CurrentTenant() auth: TenantAuthContext) {
     return this.tenant.current(auth);
   }

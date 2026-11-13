@@ -141,6 +141,8 @@ describe('billing and blocking', () => {
     const blocked = await request(server()).get('/v1/units').set(ownerAuth).expect(402);
     expect(blocked.body.code).toBe('TENANT_BLOCKED');
     await request(server()).get('/v1/tenant/billing').set(ownerAuth).expect(200);
+    const current = await request(server()).get('/v1/tenant').set(ownerAuth).expect(200);
+    expect(current.body.status).toBe('BLOCKED');
     const overdue = (await invoices()).find((invoice) => invoice.status === 'OVERDUE');
     const pix = await request(server())
       .get(`/v1/tenant/billing/invoices/${overdue?.id}/pix`)
