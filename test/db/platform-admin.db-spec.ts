@@ -89,6 +89,18 @@ describe('platform admin', () => {
     expect(duplicate.body.code).toBe('SLUG_TAKEN');
   });
 
+  it('keeps the invitation when the email cannot be sent', async () => {
+    ctx.mail.failNext = true;
+    const response = await request(ctx.app.getHttpServer())
+      .post(`/v1/admin/tenants/${tenantId}/invitations`)
+      .set(admin())
+      .send({ email: `recepcao-${randomUUID().slice(0, 8)}@teste.com`, roleKey: 'RECEPTIONIST' })
+      .expect(201);
+
+    expect(response.body.emailSent).toBe(false);
+    expect(response.body.link).toContain('/convite/');
+  });
+
   it('applies white label colors and logo', async () => {
     const invalid = await request(ctx.app.getHttpServer())
       .put(`/v1/admin/tenants/${tenantId}/branding`)

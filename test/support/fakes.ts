@@ -12,8 +12,13 @@ import type { StoredFile, StorageService } from '../../src/modules/storage/stora
 
 export class FakeMailService implements MailService {
   readonly sent: MailMessage[] = [];
+  failNext = false;
 
   send(message: MailMessage): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      return Promise.reject(new Error('smtp unavailable'));
+    }
     this.sent.push(message);
     return Promise.resolve();
   }

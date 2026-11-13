@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env';
 import type { TransactionClient } from '../../prisma/prisma.service';
@@ -19,6 +19,8 @@ export interface CreatedInvitation {
 
 @Injectable()
 export class InvitationsService {
+  private readonly logger = new Logger(InvitationsService.name);
+
   constructor(
     private readonly config: ConfigService<Env, true>,
     private readonly mail: MailService,
@@ -58,12 +60,18 @@ export class InvitationsService {
     };
   }
 
-  async send(invitation: CreatedInvitation): Promise<void> {
+  async send(invitation: CreatedInvitation): Promise<boolean> {
     const content = invitationEmail({
       barbershop: invitation.barbershop,
       name: invitation.name,
       link: invitation.link,
     });
-    await this.mail.send({ to: invitation.email, ...content });
+    try {
+      await this.mail.send({ to: invitation.email, ...content });
+      return true;
+    } catch (error) {
+      this.logger.warn(`Invitation ${invitation.id} email not sent: ${String(error)}`);
+      return false;
+    }
   }
 }

@@ -187,11 +187,11 @@ export class PlatformAdminService {
         throw error;
       });
 
-    await this.invitations.send(invitation);
+    const emailSent = await this.invitations.send(invitation);
 
     return {
       tenant,
-      invitation: { id: invitation.id, email: invitation.email, link: invitation.link },
+      invitation: { id: invitation.id, email: invitation.email, link: invitation.link, emailSent },
     };
   }
 
@@ -307,9 +307,9 @@ export class PlatformAdminService {
       });
     });
 
-    await this.invitations.send(invitation);
+    const emailSent = await this.invitations.send(invitation);
 
-    return { id: invitation.id, email: invitation.email, link: invitation.link };
+    return { id: invitation.id, email: invitation.email, link: invitation.link, emailSent };
   }
 
   private async findTenant(tx: TransactionClient, id: string): Promise<TenantDetail> {
