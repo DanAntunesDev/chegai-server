@@ -248,6 +248,7 @@ model AuditLog {
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
+  @@index([createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 
@@ -762,4 +763,30 @@ model TenantIntegration {
 
   @@id([tenantId, key])
   @@map("tenant_integrations")
+}
+
+model RequestLog {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  actor        String
+  method       String
+  path         String
+  route        String?
+  query        Json?
+  payload      Json?
+  headers      Json?
+  statusCode   Int      @map("status_code")
+  responseBody Json?    @map("response_body")
+  errorCode    String?  @map("error_code")
+  errorMessage String?  @map("error_message")
+  durationMs   Int      @map("duration_ms")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([statusCode])
+  @@map("request_logs")
 }
