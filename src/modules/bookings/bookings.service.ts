@@ -6,6 +6,9 @@ import { PrismaService, type TransactionClient } from '../../prisma/prisma.servi
 import type { TenantAuthContext } from '../auth/auth.types';
 import { AvailabilityService } from '../availability/availability.service';
 import { localDateOf } from '../availability/zoned-time';
+import { WebhookDispatcher } from '../integrations/webhook-dispatcher.service';
+import type { WebhookEvent } from '../integrations/webhook-events';
+import { assertCanManageBooking, assertCanViewBooking } from './booking-access';
 import type {
   CancelBookingInput,
   ConfirmBookingInput,
@@ -36,11 +39,30 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
+    private readonly webhooks: WebhookDispatcher,
   ) {}
+
+  private async notify<T extends object>(event: WebhookEvent, tenantId: string, work: Promise<T>) {
+    const result = await work;
+    const fields = [
+      'id',
+      'status',
+      'source',
+      'startsAt',
+      'endsAt',
+      'totalPriceCents',
+      'staff',
+      'customer',
+      'items',
+    ];
+    const data = Object.fromEntries(Object.entries(result).filter(([key]) => fields.includes(key)));
+    this.webhooks.emit(event, tenantId, data);
+    return result;
+  }
 
   createHold(auth: TenantAuthContext, input: CreateHoldInput) {
     return this.hold(auth.tenantId, input, 'PANEL', auth.userId, (staffUserId) =>
-      this.assertCanManage(auth, staffUserId),
+      assertCanManageBooking(auth, staffUserId),
     );
   }
 
@@ -105,19 +127,23 @@ export class BookingsService {
   }
 
   confirm(auth: TenantAuthContext, id: string, input: ConfirmBookingInput) {
-    return this.prisma.withTenant(auth.tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      this.assertCanManage(auth, booking.staff.userId);
-      this.assertHoldAlive(booking);
+    return this.notify(
+      'booking.confirmed',
+      auth.tenantId,
+      this.prisma.withTenant(auth.tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        assertCanManageBooking(auth, booking.staff.userId);
+        this.assertHoldAlive(booking);
 
-      const customerId = await this.resolveCustomer(tx, auth.tenantId, input);
-      return this.transition(tx, {
-        booking,
-        to: 'CONFIRMED',
-        actorUserId: auth.userId,
-        data: { holdExpiresAt: null, customerId, notes: input.notes },
-      });
-    });
+        const customerId = await this.resolveCustomer(tx, auth.tenantId, input);
+        return this.transition(tx, {
+          booking,
+          to: 'CONFIRMED',
+          actorUserId: auth.userId,
+          data: { holdExpiresAt: null, customerId, notes: input.notes },
+        });
+      }),
+    );
   }
 
   confirmPublic(
@@ -125,27 +151,31 @@ export class BookingsService {
     id: string,
     customer: { phone: string; name: string; notes?: string },
   ) {
-    return this.prisma.withTenant(tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      if (booking.source !== 'PUBLIC') {
-        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
-      }
-      this.assertHoldAlive(booking);
+    return this.notify(
+      'booking.confirmed',
+      tenantId,
+      this.prisma.withTenant(tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        if (booking.source !== 'PUBLIC') {
+          throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+        }
+        this.assertHoldAlive(booking);
 
-      const record = await tx.customer.upsert({
-        where: { tenantId_phone: { tenantId, phone: customer.phone } },
-        update: { deletedAt: null },
-        create: { tenantId, phone: customer.phone, name: customer.name },
-      });
-      const confirmed = await this.transition(tx, {
-        booking,
-        to: 'CONFIRMED',
-        actorUserId: null,
-        reason: 'CUSTOMER',
-        data: { holdExpiresAt: null, customerId: record.id, notes: customer.notes },
-      });
-      return this.presentPublic(confirmed);
-    });
+        const record = await tx.customer.upsert({
+          where: { tenantId_phone: { tenantId, phone: customer.phone } },
+          update: { deletedAt: null },
+          create: { tenantId, phone: customer.phone, name: customer.name },
+        });
+        const confirmed = await this.transition(tx, {
+          booking,
+          to: 'CONFIRMED',
+          actorUserId: null,
+          reason: 'CUSTOMER',
+          data: { holdExpiresAt: null, customerId: record.id, notes: customer.notes },
+        });
+        return this.presentPublic(confirmed);
+      }),
+    );
   }
 
   listForCustomer(tenantId: string, phone: string) {
@@ -165,24 +195,31 @@ export class BookingsService {
   }
 
   cancelByCustomer(tenantId: string, id: string, phone: string) {
-    return this.prisma.withTenant(tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      if (booking.customer?.phone !== phone) {
-        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
-      }
-      if (booking.status !== 'CONFIRMED' || booking.startsAt <= new Date()) {
-        throw AppError.conflict('BOOKING_NOT_CANCELABLE', 'This booking can no longer be canceled');
-      }
-      const now = new Date();
-      const canceled = await this.transition(tx, {
-        booking,
-        to: 'CANCELED',
-        actorUserId: null,
-        reason: 'CUSTOMER',
-        data: { canceledAt: now, cancelReason: 'Cancelado pelo cliente' },
-      });
-      return this.presentPublic(canceled);
-    });
+    return this.notify(
+      'booking.canceled',
+      tenantId,
+      this.prisma.withTenant(tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        if (booking.customer?.phone !== phone) {
+          throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+        }
+        if (booking.status !== 'CONFIRMED' || booking.startsAt <= new Date()) {
+          throw AppError.conflict(
+            'BOOKING_NOT_CANCELABLE',
+            'This booking can no longer be canceled',
+          );
+        }
+        const now = new Date();
+        const canceled = await this.transition(tx, {
+          booking,
+          to: 'CANCELED',
+          actorUserId: null,
+          reason: 'CUSTOMER',
+          data: { canceledAt: now, cancelReason: 'Cancelado pelo cliente' },
+        });
+        return this.presentPublic(canceled);
+      }),
+    );
   }
 
   presentPublic(booking: {
@@ -218,132 +255,155 @@ export class BookingsService {
     const now = new Date();
     const startsAt = new Date(input.startsAt);
 
-    return this.mapOverlap(() =>
-      this.prisma.withTenant(auth.tenantId, async (tx) => {
-        const booking = await this.find(tx, id);
-        this.assertCanManage(auth, booking.staff.userId);
-        if (booking.status !== 'CONFIRMED') {
-          throw AppError.conflict(
-            'BOOKING_NOT_RESCHEDULABLE',
-            'Only confirmed bookings can be rescheduled',
-          );
-        }
+    return this.notify(
+      'booking.rescheduled',
+      auth.tenantId,
+      this.mapOverlap(() =>
+        this.prisma.withTenant(auth.tenantId, async (tx) => {
+          const booking = await this.find(tx, id);
+          assertCanManageBooking(auth, booking.staff.userId);
+          if (booking.status !== 'CONFIRMED') {
+            throw AppError.conflict(
+              'BOOKING_NOT_RESCHEDULABLE',
+              'Only confirmed bookings can be rescheduled',
+            );
+          }
 
-        const { staffId, offer } = await this.pickSlot(tx, {
-          unitId: booking.unitId,
-          serviceIds: booking.items.map((item) => item.serviceId),
-          staffId: input.staffId ?? booking.staffId,
-          startsAt,
-          now,
-          excludeBookingId: booking.id,
-        });
-
-        if (staffId !== booking.staffId) {
-          const target = await tx.staff.findUniqueOrThrow({ where: { id: staffId } });
-          this.assertCanManage(auth, target.userId);
-        }
-
-        const endsAt = new Date(startsAt.getTime() + offer.durationMinutes * 60000);
-        await tx.booking.update({
-          where: { id },
-          data: {
-            staffId,
+          const { staffId, offer } = await this.pickSlot(tx, {
+            unitId: booking.unitId,
+            serviceIds: booking.items.map((item) => item.serviceId),
+            staffId: input.staffId ?? booking.staffId,
             startsAt,
-            endsAt,
-            blockedUntil: new Date(endsAt.getTime() + offer.bufferMinutes * 60000),
-          },
-        });
-        await tx.bookingEvent.create({
-          data: {
-            tenantId: auth.tenantId,
-            bookingId: id,
-            fromStatus: 'CONFIRMED',
-            toStatus: 'CONFIRMED',
-            actorUserId: auth.userId,
-            reason: 'RESCHEDULED',
+            now,
+            excludeBookingId: booking.id,
+          });
+
+          if (staffId !== booking.staffId) {
+            const target = await tx.staff.findUniqueOrThrow({ where: { id: staffId } });
+            assertCanManageBooking(auth, target.userId);
+          }
+
+          const endsAt = new Date(startsAt.getTime() + offer.durationMinutes * 60000);
+          await tx.booking.update({
+            where: { id },
             data: {
-              from: { staffId: booking.staffId, startsAt: booking.startsAt.toISOString() },
-              to: { staffId, startsAt: startsAt.toISOString() },
+              staffId,
+              startsAt,
+              endsAt,
+              blockedUntil: new Date(endsAt.getTime() + offer.bufferMinutes * 60000),
             },
-          },
-        });
-        return this.load(tx, id);
-      }),
+          });
+          await tx.bookingEvent.create({
+            data: {
+              tenantId: auth.tenantId,
+              bookingId: id,
+              fromStatus: 'CONFIRMED',
+              toStatus: 'CONFIRMED',
+              actorUserId: auth.userId,
+              reason: 'RESCHEDULED',
+              data: {
+                from: { staffId: booking.staffId, startsAt: booking.startsAt.toISOString() },
+                to: { staffId, startsAt: startsAt.toISOString() },
+              },
+            },
+          });
+          return this.load(tx, id);
+        }),
+      ),
     );
   }
 
   cancel(auth: TenantAuthContext, id: string, input: CancelBookingInput) {
-    return this.prisma.withTenant(auth.tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      this.assertCanManage(auth, booking.staff.userId);
-      if (booking.status !== 'HOLD' && booking.status !== 'CONFIRMED') {
-        throw AppError.conflict(
-          'BOOKING_NOT_CANCELABLE',
-          'Only held or confirmed bookings can be canceled',
-        );
-      }
-      const now = new Date();
-      return this.transition(tx, {
-        booking,
-        to: 'CANCELED',
-        actorUserId: auth.userId,
-        reason: input.reason,
-        data: { canceledAt: now, cancelReason: input.reason ?? null, holdExpiresAt: null },
-      });
-    });
+    return this.notify(
+      'booking.canceled',
+      auth.tenantId,
+      this.prisma.withTenant(auth.tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        assertCanManageBooking(auth, booking.staff.userId);
+        if (booking.status !== 'HOLD' && booking.status !== 'CONFIRMED') {
+          throw AppError.conflict(
+            'BOOKING_NOT_CANCELABLE',
+            'Only held or confirmed bookings can be canceled',
+          );
+        }
+        const now = new Date();
+        return this.transition(tx, {
+          booking,
+          to: 'CANCELED',
+          actorUserId: auth.userId,
+          reason: input.reason,
+          data: { canceledAt: now, cancelReason: input.reason ?? null, holdExpiresAt: null },
+        });
+      }),
+    );
   }
 
   checkIn(auth: TenantAuthContext, id: string) {
-    return this.prisma.withTenant(auth.tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      this.assertCanManage(auth, booking.staff.userId);
-      if (booking.status !== 'CONFIRMED') {
-        throw AppError.conflict('BOOKING_NOT_CONFIRMED', 'Only confirmed bookings can check in');
-      }
-      const now = new Date();
-      const unit = await tx.unit.findUniqueOrThrow({ where: { id: booking.unitId } });
-      if (now.getTime() < booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000) {
-        throw AppError.conflict('CHECK_IN_TOO_EARLY', 'Check-in is not open yet', {
-          opensAt: new Date(booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000),
+    return this.notify(
+      'booking.checked_in',
+      auth.tenantId,
+      this.prisma.withTenant(auth.tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        assertCanManageBooking(auth, booking.staff.userId);
+        if (booking.status !== 'CONFIRMED') {
+          throw AppError.conflict('BOOKING_NOT_CONFIRMED', 'Only confirmed bookings can check in');
+        }
+        const now = new Date();
+        const unit = await tx.unit.findUniqueOrThrow({ where: { id: booking.unitId } });
+        if (now.getTime() < booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000) {
+          throw AppError.conflict('CHECK_IN_TOO_EARLY', 'Check-in is not open yet', {
+            opensAt: new Date(booking.startsAt.getTime() - unit.checkInOpensMinutes * 60000),
+          });
+        }
+        return this.transition(tx, {
+          booking,
+          to: 'CHECKED_IN',
+          actorUserId: auth.userId,
+          data: { checkedInAt: now },
         });
-      }
-      return this.transition(tx, {
-        booking,
-        to: 'CHECKED_IN',
-        actorUserId: auth.userId,
-        data: { checkedInAt: now },
-      });
-    });
+      }),
+    );
   }
 
   complete(auth: TenantAuthContext, id: string) {
-    return this.prisma.withTenant(auth.tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      this.assertCanManage(auth, booking.staff.userId);
-      if (booking.status !== 'CHECKED_IN') {
-        throw AppError.conflict('BOOKING_NOT_CHECKED_IN', 'Check in before completing');
-      }
-      return this.transition(tx, {
-        booking,
-        to: 'COMPLETED',
-        actorUserId: auth.userId,
-        data: { completedAt: new Date() },
-      });
-    });
+    return this.notify(
+      'booking.completed',
+      auth.tenantId,
+      this.prisma.withTenant(auth.tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        assertCanManageBooking(auth, booking.staff.userId);
+        if (booking.status !== 'CHECKED_IN') {
+          throw AppError.conflict('BOOKING_NOT_CHECKED_IN', 'Check in before completing');
+        }
+        return this.transition(tx, {
+          booking,
+          to: 'COMPLETED',
+          actorUserId: auth.userId,
+          data: { completedAt: new Date() },
+        });
+      }),
+    );
   }
 
   markNoShow(auth: TenantAuthContext, id: string) {
-    return this.prisma.withTenant(auth.tenantId, async (tx) => {
-      const booking = await this.find(tx, id);
-      this.assertCanManage(auth, booking.staff.userId);
-      if (booking.status !== 'CONFIRMED') {
-        throw AppError.conflict('BOOKING_NOT_CONFIRMED', 'Only confirmed bookings can be no-show');
-      }
-      if (booking.startsAt > new Date()) {
-        throw AppError.conflict('BOOKING_NOT_STARTED', 'The booking time has not arrived yet');
-      }
-      return this.transition(tx, { booking, to: 'NO_SHOW', actorUserId: auth.userId });
-    });
+    return this.notify(
+      'booking.no_show',
+      auth.tenantId,
+      this.prisma.withTenant(auth.tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        assertCanManageBooking(auth, booking.staff.userId);
+        if (booking.status !== 'CONFIRMED') {
+          throw AppError.conflict(
+            'BOOKING_NOT_CONFIRMED',
+            'Only confirmed bookings can be no-show',
+          );
+        }
+        if (booking.startsAt > new Date()) {
+          throw AppError.conflict('BOOKING_NOT_STARTED', 'The booking time has not arrived yet');
+        }
+        return this.transition(tx, { booking, to: 'NO_SHOW', actorUserId: auth.userId });
+      }),
+    );
   }
 
   list(auth: TenantAuthContext, query: ListBookingsQuery) {
@@ -371,7 +431,7 @@ export class BookingsService {
   get(auth: TenantAuthContext, id: string) {
     return this.prisma.withTenant(auth.tenantId, async (tx) => {
       const booking = await this.find(tx, id);
-      this.assertCanView(auth, booking.staff.userId);
+      assertCanViewBooking(auth, booking.staff.userId);
       const { staff, ...rest } = booking;
       return { ...rest, staff: { id: staff.id, name: staff.name, nickname: staff.nickname } };
     });
@@ -380,7 +440,7 @@ export class BookingsService {
   events(auth: TenantAuthContext, id: string) {
     return this.prisma.withTenant(auth.tenantId, async (tx) => {
       const booking = await this.find(tx, id);
-      this.assertCanView(auth, booking.staff.userId);
+      assertCanViewBooking(auth, booking.staff.userId);
       return tx.bookingEvent.findMany({
         where: { bookingId: id },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -564,33 +624,6 @@ export class BookingsService {
         reason: 'HOLD_EXPIRED',
       })),
     });
-  }
-
-  private assertCanManage(auth: TenantAuthContext, staffUserId: string | null) {
-    if (auth.permissions.includes('bookings.manage.any')) {
-      return;
-    }
-    if (auth.permissions.includes('bookings.manage.own') && staffUserId === auth.userId) {
-      return;
-    }
-    throw AppError.forbidden('PERMISSION_DENIED', 'You cannot manage bookings for this barber');
-  }
-
-  private assertCanView(auth: TenantAuthContext, staffUserId: string | null) {
-    if (
-      auth.permissions.includes('bookings.view.any') ||
-      auth.permissions.includes('bookings.manage.any')
-    ) {
-      return;
-    }
-    if (
-      (auth.permissions.includes('bookings.view.own') ||
-        auth.permissions.includes('bookings.manage.own')) &&
-      staffUserId === auth.userId
-    ) {
-      return;
-    }
-    throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
   }
 
   private load(tx: TransactionClient, id: string) {

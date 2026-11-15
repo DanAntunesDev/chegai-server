@@ -12,6 +12,7 @@ import type { Env } from '../../config/env';
 import type { InvoiceKind, Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { localDateOf } from '../availability/zoned-time';
+import { WebhookDispatcher } from '../integrations/webhook-dispatcher.service';
 import { PaymentGateway } from './payment-gateway';
 import { TenantStatusCache } from './tenant-status.cache';
 
@@ -22,7 +23,7 @@ const PAID_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED']);
 export interface WebhookPayload {
   id?: string;
   event?: string;
-  payment?: { id?: string };
+  payment?: { id?: string; paymentLink?: string | null };
 }
 
 @Injectable()
@@ -33,6 +34,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateway: PaymentGateway,
+    private readonly webhooks: WebhookDispatcher,
     private readonly statusCache: TenantStatusCache,
     config: ConfigService<Env, true>,
   ) {
@@ -173,7 +175,10 @@ export class BillingService {
     }
 
     const paymentId = payload.payment?.id;
-    if (paymentId && PAID_EVENTS.has(type)) {
+    const linkId = payload.payment?.paymentLink;
+    if (paymentId && linkId && PAID_EVENTS.has(type)) {
+      await this.markLinkPaid(linkId, paymentId);
+    } else if (paymentId && PAID_EVENTS.has(type)) {
       await this.markPaid(paymentId);
     } else if (paymentId && type === 'PAYMENT_OVERDUE') {
       await this.prisma.asSystem((tx) =>
@@ -191,6 +196,27 @@ export class BillingService {
       }),
     );
     return { duplicated: false };
+  }
+
+  private async markLinkPaid(linkId: string, providerPaymentId: string) {
+    const payment = await this.prisma.asSystem(async (tx) => {
+      const found = await tx.bookingPayment.findUnique({ where: { providerLinkId: linkId } });
+      if (!found || found.status === 'PAID') {
+        return null;
+      }
+      return tx.bookingPayment.update({
+        where: { id: found.id },
+        data: { status: 'PAID', paidAt: new Date(), providerPaymentId },
+      });
+    });
+    if (payment) {
+      this.webhooks.emit('payment.paid', payment.tenantId, {
+        bookingId: payment.bookingId,
+        paymentId: payment.id,
+        kind: payment.kind,
+        amountCents: payment.amountCents,
+      });
+    }
   }
 
   private async markPaid(providerPaymentId: string) {
