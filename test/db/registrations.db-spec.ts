@@ -169,7 +169,7 @@ describe('units, staff, services and customers', () => {
     await request(server())
       .post('/v1/customers')
       .set(ownerAuth)
-      .send({ name: 'João Cliente', phone: '(38) 99999-1234', tags: ['VIP'] })
+      .send({ name: 'João Cliente', phone: '(38) 99999-1234', tagIds: [] })
       .expect(201);
 
     const duplicate = await request(server())

@@ -160,6 +160,7 @@ async function seedDemoTenant() {
   });
 
   await seedDemoOperation(tenant.id);
+  await seedDemoTags(tenant.id);
   await seedDemoBilling(tenant.id, plan.name, plan.setupFeeCents, plan.monthlyPriceCents);
 }
 
@@ -242,6 +243,53 @@ const DEMO_CUSTOMERS = [
   { name: 'Matheus Rocha', phone: '+5538991110005', tags: ['vip', 'mensal'] },
 ];
 
+const DEMO_TAGS = [
+  {
+    name: 'VIP',
+    color: '#b45309',
+    note: 'Clientes da casa, atendimento prioritário',
+    scope: 'CUSTOMERS',
+  },
+  { name: 'Barba', color: '#1e4fd8', note: null, scope: 'ALL' },
+  { name: 'Mensal', color: '#15803d', note: 'Plano mensal de cortes', scope: 'CUSTOMERS' },
+  { name: 'Aprendiz', color: '#7c3aed', note: 'Em treinamento', scope: 'STAFF' },
+] as const;
+
+async function seedDemoTags(tenantId: string) {
+  for (const tag of DEMO_TAGS) {
+    await prisma.tag.upsert({
+      where: { tenantId_name: { tenantId, name: tag.name } },
+      update: {},
+      create: { tenantId, ...tag },
+    });
+  }
+  const tags = await prisma.tag.findMany({ where: { tenantId } });
+  const byName = new Map(tags.map((tag) => [tag.name.toLowerCase(), tag.id]));
+  for (const customer of DEMO_CUSTOMERS) {
+    const record = await prisma.customer.findUnique({
+      where: { tenantId_phone: { tenantId, phone: customer.phone } },
+    });
+    if (!record) {
+      continue;
+    }
+    await prisma.customerTag.createMany({
+      data: customer.tags.flatMap((name) => {
+        const tagId = byName.get(name);
+        return tagId ? [{ customerId: record.id, tagId, tenantId }] : [];
+      }),
+      skipDuplicates: true,
+    });
+  }
+  const bruno = await prisma.staff.findFirst({ where: { tenantId, name: 'Bruno' } });
+  const barba = byName.get('barba');
+  if (bruno && barba) {
+    await prisma.staffTag.createMany({
+      data: [{ staffId: bruno.id, tagId: barba, tenantId }],
+      skipDuplicates: true,
+    });
+  }
+}
+
 async function seedDemoCombo(tenantId: string) {
   const services = await prisma.service.findMany({ where: { tenantId, deletedAt: null } });
   const combo = services.find((service) => service.name === 'Corte + barba');
@@ -311,7 +359,7 @@ async function seedDemoOperation(tenantId: string) {
   }
 
   await prisma.customer.createMany({
-    data: DEMO_CUSTOMERS.map((customer) => ({ tenantId, ...customer })),
+    data: DEMO_CUSTOMERS.map(({ tags: _tags, ...customer }) => ({ tenantId, ...customer })),
   });
 
   await seedDemoBookings(tenantId, unit.id);

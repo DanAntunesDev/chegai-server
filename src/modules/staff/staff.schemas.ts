@@ -11,6 +11,7 @@ export const createStaffSchema = z.object({
   email: z.email().optional(),
   userId: z.uuid().optional(),
   unitIds: z.array(z.uuid()).min(1),
+  tagIds: z.array(z.uuid()).max(20).optional(),
 });
 
 export const updateStaffSchema = z
@@ -21,6 +22,7 @@ export const updateStaffSchema = z
     email: z.email().nullable(),
     userId: z.uuid().nullable(),
     unitIds: z.array(z.uuid()).min(1),
+    tagIds: z.array(z.uuid()).max(20),
     isActive: z.boolean(),
   })
   .partial();

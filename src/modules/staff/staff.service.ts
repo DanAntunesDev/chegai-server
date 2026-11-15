@@ -3,6 +3,7 @@ import { AppError } from '../../common/errors/app-error';
 import { minutesToTime } from '../../common/validation/fields';
 import { PrismaService, type TransactionClient } from '../../prisma/prisma.service';
 import type { TenantAuthContext } from '../auth/auth.types';
+import { assertTags, flattenTags, tagSummary } from '../tags/tags.service';
 import { type LimitedResource, PlanLimitsService } from '../plans/plan-limits.service';
 import type {
   CreateBlockInput,
@@ -14,6 +15,11 @@ import type {
   WorkingHoursInput,
 } from './staff.schemas';
 import { findOverlap } from './working-hours';
+
+const staffInclude = {
+  units: { select: { unitId: true } },
+  tags: { include: { tag: tagSummary } },
+} as const;
 
 const LIMIT_BY_KIND: Partial<Record<string, LimitedResource>> = {
   BARBER: 'barbers',
@@ -28,17 +34,18 @@ export class StaffService {
   ) {}
 
   list(auth: TenantAuthContext, input: ListStaffInput) {
-    return this.prisma.withTenant(auth.tenantId, (tx) =>
-      tx.staff.findMany({
+    return this.prisma.withTenant(auth.tenantId, async (tx) => {
+      const staff = await tx.staff.findMany({
         where: {
           deletedAt: null,
           kind: input.kind,
           units: input.unitId ? { some: { unitId: input.unitId } } : undefined,
         },
-        include: { units: { select: { unitId: true } } },
+        include: staffInclude,
         orderBy: { name: 'asc' },
-      }),
-    );
+      });
+      return staff.map(flattenTags);
+    });
   }
 
   get(auth: TenantAuthContext, id: string) {
@@ -46,7 +53,7 @@ export class StaffService {
       const staff = await tx.staff.findFirst({
         where: { id, deletedAt: null },
         include: {
-          units: { select: { unitId: true } },
+          ...staffInclude,
           workingHours: { orderBy: [{ weekday: 'asc' }, { startMinute: 'asc' }] },
           services: { include: { service: { select: { id: true, name: true } } } },
         },
@@ -56,7 +63,7 @@ export class StaffService {
       }
 
       return {
-        ...staff,
+        ...flattenTags(staff),
         workingHours: staff.workingHours.map((interval) => ({
           id: interval.id,
           unitId: interval.unitId,
@@ -76,8 +83,8 @@ export class StaffService {
       }
       await this.assertUnits(tx, input.unitIds);
 
-      const { unitIds, ...data } = input;
-      return tx.staff.create({
+      const { unitIds, tagIds, ...data } = input;
+      const created = await tx.staff.create({
         data: {
           ...data,
           tenantId: auth.tenantId,
@@ -85,15 +92,16 @@ export class StaffService {
             create: unitIds.map((unitId) => ({ unitId, tenantId: auth.tenantId })),
           },
         },
-        include: { units: { select: { unitId: true } } },
       });
+      await this.saveTags(tx, auth.tenantId, created.id, tagIds);
+      return this.find(tx, created.id);
     });
   }
 
   update(auth: TenantAuthContext, id: string, input: UpdateStaffInput) {
     return this.prisma.withTenant(auth.tenantId, async (tx) => {
       const staff = await this.find(tx, id);
-      const { unitIds, ...data } = input;
+      const { unitIds, tagIds, ...data } = input;
 
       if (input.isActive && !staff.isActive) {
         const resource = LIMIT_BY_KIND[staff.kind];
@@ -111,11 +119,9 @@ export class StaffService {
         await tx.workingHours.deleteMany({ where: { staffId: id, unitId: { notIn: unitIds } } });
       }
 
-      return tx.staff.update({
-        where: { id },
-        data,
-        include: { units: { select: { unitId: true } } },
-      });
+      await tx.staff.update({ where: { id }, data });
+      await this.saveTags(tx, auth.tenantId, id, tagIds);
+      return this.find(tx, id);
     });
   }
 
@@ -237,14 +243,30 @@ export class StaffService {
     }
   }
 
+  private async saveTags(
+    tx: TransactionClient,
+    tenantId: string,
+    staffId: string,
+    tagIds: string[] | undefined,
+  ) {
+    if (!tagIds) {
+      return;
+    }
+    await assertTags(tx, tagIds, 'STAFF');
+    await tx.staffTag.deleteMany({ where: { staffId } });
+    await tx.staffTag.createMany({
+      data: [...new Set(tagIds)].map((tagId) => ({ staffId, tagId, tenantId })),
+    });
+  }
+
   private async find(tx: TransactionClient, id: string) {
     const staff = await tx.staff.findFirst({
       where: { id, deletedAt: null },
-      include: { units: { select: { unitId: true } } },
+      include: staffInclude,
     });
     if (!staff) {
       throw AppError.notFound('STAFF_NOT_FOUND', 'Staff member not found');
     }
-    return staff;
+    return flattenTags(staff);
   }
 }

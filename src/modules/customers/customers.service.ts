@@ -5,14 +5,17 @@ import { normalizeBrazilianPhone } from '../../common/validation/fields';
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService, type TransactionClient } from '../../prisma/prisma.service';
 import type { TenantAuthContext } from '../auth/auth.types';
+import { assertTags, flattenTags, tagSummary } from '../tags/tags.service';
 import type {
   CreateCustomerInput,
   ListCustomersInput,
   UpdateCustomerInput,
 } from './customers.schemas';
 
-function toData<T extends { birthDate?: string | null }>(input: T) {
-  const { birthDate, ...rest } = input;
+const customerInclude = { tags: { include: { tag: tagSummary } } } as const;
+
+function toData<T extends { birthDate?: string | null; tagIds?: string[] }>(input: T) {
+  const { birthDate, tagIds: _tagIds, ...rest } = input;
   return {
     ...rest,
     birthDate:
@@ -29,7 +32,7 @@ export class CustomersService {
       const phone = input.search ? normalizeBrazilianPhone(input.search) : null;
       const where: Prisma.CustomerWhereInput = {
         deletedAt: null,
-        tags: input.tag ? { has: input.tag } : undefined,
+        tags: input.tagId ? { some: { tagId: input.tagId } } : undefined,
         OR: input.search
           ? [
               { name: { contains: input.search, mode: 'insensitive' } },
@@ -44,10 +47,12 @@ export class CustomersService {
         orderBy: { name: 'asc' },
         skip: (input.page - 1) * input.pageSize,
         take: input.pageSize,
+        include: customerInclude,
+        omit: { passwordHash: true },
       });
       const total = await tx.customer.count({ where });
 
-      return { items, total, page: input.page, pageSize: input.pageSize };
+      return { items: items.map(flattenTags), total, page: input.page, pageSize: input.pageSize };
     });
   }
 
@@ -57,9 +62,13 @@ export class CustomersService {
 
   create(auth: TenantAuthContext, input: CreateCustomerInput) {
     return this.prisma
-      .withTenant(auth.tenantId, (tx) =>
-        tx.customer.create({ data: { ...toData(input), tenantId: auth.tenantId } }),
-      )
+      .withTenant(auth.tenantId, async (tx) => {
+        const created = await tx.customer.create({
+          data: { ...toData(input), tenantId: auth.tenantId },
+        });
+        await this.saveTags(tx, auth.tenantId, created.id, input.tagIds);
+        return this.find(tx, created.id);
+      })
       .catch(rethrowPhoneConflict);
   }
 
@@ -67,7 +76,9 @@ export class CustomersService {
     return this.prisma
       .withTenant(auth.tenantId, async (tx) => {
         await this.find(tx, id);
-        return tx.customer.update({ where: { id }, data: toData(input) });
+        await tx.customer.update({ where: { id }, data: toData(input) });
+        await this.saveTags(tx, auth.tenantId, id, input.tagIds);
+        return this.find(tx, id);
       })
       .catch(rethrowPhoneConflict);
   }
@@ -79,12 +90,32 @@ export class CustomersService {
     });
   }
 
+  private async saveTags(
+    tx: TransactionClient,
+    tenantId: string,
+    customerId: string,
+    tagIds: string[] | undefined,
+  ) {
+    if (!tagIds) {
+      return;
+    }
+    await assertTags(tx, tagIds, 'CUSTOMERS');
+    await tx.customerTag.deleteMany({ where: { customerId } });
+    await tx.customerTag.createMany({
+      data: [...new Set(tagIds)].map((tagId) => ({ customerId, tagId, tenantId })),
+    });
+  }
+
   private async find(tx: TransactionClient, id: string) {
-    const customer = await tx.customer.findFirst({ where: { id, deletedAt: null } });
+    const customer = await tx.customer.findFirst({
+      where: { id, deletedAt: null },
+      include: customerInclude,
+      omit: { passwordHash: true },
+    });
     if (!customer) {
       throw AppError.notFound('CUSTOMER_NOT_FOUND', 'Customer not found');
     }
-    return customer;
+    return flattenTags(customer);
   }
 }
 
