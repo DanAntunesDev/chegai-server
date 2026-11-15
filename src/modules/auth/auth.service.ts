@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { hash, verify } from '@node-rs/argon2';
 import { AppError } from '../../common/errors/app-error';
 import { EncryptionService } from '../../common/crypto/encryption.service';
+import { PERMISSIONS } from '../access/permissions';
 import { PrismaService, type TransactionClient } from '../../prisma/prisma.service';
 import type { AcceptInvitationInput, LoginInput } from './auth.schemas';
 import type { AccessTokenPayload, AuthContext, RequestMeta } from './auth.types';
@@ -152,14 +153,19 @@ export class AuthService {
       const user = await tx.user.findUniqueOrThrow({ where: { id: auth.userId } });
       const memberships = await this.activeMemberships(tx, user.id);
       const membership = memberships.find((item) => item.tenant.slug === tenantSlug);
+      const tenantId =
+        membership?.tenantId ??
+        (user.isPlatformAdmin
+          ? (await tx.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } }))?.id
+          : undefined);
 
-      if (!membership) {
+      if (!tenantId) {
         throw AppError.forbidden('TENANT_ACCESS_DENIED', 'No access to this barbershop');
       }
 
       return this.createSession(tx, {
         user,
-        tenantId: membership.tenantId,
+        tenantId,
         mfaVerified: auth.mfaVerified,
         meta,
       });
@@ -173,7 +179,11 @@ export class AuthService {
         select: { id: true, name: true, email: true, isPlatformAdmin: true, totpEnabledAt: true },
       });
       const memberships = await this.activeMemberships(tx, auth.userId);
-      const current = memberships.find((item) => item.tenantId === auth.tenantId);
+      const current =
+        memberships.find((item) => item.tenantId === auth.tenantId) ??
+        (auth.tenantId && user.isPlatformAdmin
+          ? await this.platformAccess(tx, auth.tenantId)
+          : undefined);
 
       return {
         user: {
@@ -330,6 +340,20 @@ export class AuthService {
     });
   }
 
+  private async platformAccess(tx: TransactionClient, tenantId: string) {
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, slug: true, displayName: true },
+    });
+    return tenant
+      ? {
+          tenantId: tenant.id,
+          tenant,
+          role: { key: 'PLATFORM_ADMIN', permissions: [...PERMISSIONS] as string[] },
+        }
+      : undefined;
+  }
+
   private async createSession(
     tx: TransactionClient,
     params: {
@@ -341,7 +365,12 @@ export class AuthService {
     },
   ): Promise<SessionResult & { refreshTokenId: string }> {
     const memberships = await this.activeMemberships(tx, params.user.id);
-    const membership = memberships.find((item) => item.tenantId === params.tenantId);
+    const member = memberships.find((item) => item.tenantId === params.tenantId);
+    const membership =
+      member ??
+      (params.tenantId && params.user.isPlatformAdmin
+        ? await this.platformAccess(tx, params.tenantId)
+        : undefined);
 
     if (params.tenantId && !membership) {
       throw AppError.forbidden('TENANT_ACCESS_DENIED', 'No access to this barbershop');
