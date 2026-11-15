@@ -387,13 +387,28 @@ model Service {
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category     ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category     ServiceCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   staff        StaffService[]
   bookingItems BookingItem[]
+  comboItems   ServiceComboItem[] @relation("ComboItems")
+  partOfCombos ServiceComboItem[] @relation("ComboService")
 
   @@index([tenantId])
   @@map("services")
+}
+
+model ServiceComboItem {
+  comboId   String @map("combo_id") @db.Uuid
+  serviceId String @map("service_id") @db.Uuid
+  tenantId  String @map("tenant_id") @db.Uuid
+
+  combo   Service @relation("ComboItems", fields: [comboId], references: [id], onDelete: Cascade)
+  service Service @relation("ComboService", fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([comboId, serviceId])
+  @@index([tenantId])
+  @@map("service_combo_items")
 }
 
 model StaffService {
@@ -412,18 +427,20 @@ model StaffService {
 }
 
 model Customer {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenantId       String    @map("tenant_id") @db.Uuid
-  name           String
-  phone          String
-  email          String?   @db.Citext
-  birthDate      DateTime? @map("birth_date") @db.Date
-  notes          String?
-  tags           String[]  @default([])
-  marketingOptIn Boolean   @default(true) @map("marketing_opt_in")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  name            String
+  phone           String
+  email           String?   @db.Citext
+  birthDate       DateTime? @map("birth_date") @db.Date
+  notes           String?
+  tags            String[]  @default([])
+  marketingOptIn  Boolean   @default(true) @map("marketing_opt_in")
+  passwordHash    String?   @map("password_hash")
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   bookings Booking[]
@@ -455,10 +472,10 @@ model Booking {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  unit     Unit          @relation(fields: [unitId], references: [id])
-  staff    Staff         @relation(fields: [staffId], references: [id])
-  customer Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit     Unit           @relation(fields: [unitId], references: [id])
+  staff    Staff          @relation(fields: [staffId], references: [id])
+  customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items    BookingItem[]
   events   BookingEvent[]
 
