@@ -96,6 +96,7 @@ model Tenant {
   staff             Staff[]
   services          Service[]
   serviceCategories ServiceCategory[]
+  tags              Tag[]
   customers         Customer[]
   bookings          Booking[]
   subscription      Subscription?
@@ -309,9 +310,62 @@ model Staff {
   blocks       ScheduleBlock[]
   services     StaffService[]
   bookings     Booking[]
+  tags         StaffTag[]
 
   @@index([tenantId])
   @@map("staff")
+}
+
+enum TagScope {
+  ALL
+  CUSTOMERS
+  STAFF
+}
+
+model Tag {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String   @db.Citext
+  color     String   @default("#64748b")
+  note      String?
+  scope     TagScope @default(ALL)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customers CustomerTag[]
+  staff     StaffTag[]
+
+  @@unique([tenantId, name])
+  @@map("tags")
+}
+
+model CustomerTag {
+  customerId String @map("customer_id") @db.Uuid
+  tagId      String @map("tag_id") @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+  @@index([tagId])
+  @@index([tenantId])
+  @@map("customer_tags")
+}
+
+model StaffTag {
+  staffId  String @map("staff_id") @db.Uuid
+  tagId    String @map("tag_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, tagId])
+  @@index([tagId])
+  @@index([tenantId])
+  @@map("staff_tags")
 }
 
 model StaffUnit {
@@ -438,7 +492,6 @@ model Customer {
   email           String?   @db.Citext
   birthDate       DateTime? @map("birth_date") @db.Date
   notes           String?
-  tags            String[]  @default([])
   marketingOptIn  Boolean   @default(true) @map("marketing_opt_in")
   passwordHash    String?   @map("password_hash")
   phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
@@ -446,8 +499,9 @@ model Customer {
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   bookings Booking[]
+  tags     CustomerTag[]
 
   @@unique([tenantId, phone])
   @@index([tenantId, name])
