@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Public } from '../auth/auth.decorators';
 
 const resolveSchema = z.object({ host: z.string().min(3).max(253) });
+const searchSchema = z.object({ q: z.string().trim().min(3).max(60) });
 
 @Public()
 @Controller('public')
@@ -36,6 +37,42 @@ export class PublicController {
       secondaryColor: tenant.branding?.secondaryColor ?? '#1E4FD8',
       showPoweredBy: tenant.branding?.showPoweredBy ?? true,
     };
+  }
+
+  @Get('tenants')
+  async search(@Query(new ZodValidationPipe(searchSchema)) query: z.infer<typeof searchSchema>) {
+    const tenants = await this.prisma.asSystem((tx) =>
+      tx.tenant.findMany({
+        where: {
+          deletedAt: null,
+          status: { in: ['TRIAL', 'ACTIVE', 'PAST_DUE'] },
+          OR: [
+            { displayName: { contains: query.q, mode: 'insensitive' } },
+            { slug: { contains: query.q.toLowerCase() } },
+          ],
+        },
+        orderBy: { displayName: 'asc' },
+        take: 6,
+        select: {
+          slug: true,
+          displayName: true,
+          branding: { select: { iconUrl: true, primaryColor: true } },
+          units: {
+            where: { deletedAt: null, isActive: true },
+            select: { city: true, state: true },
+            take: 1,
+          },
+        },
+      }),
+    );
+    return tenants.map((tenant) => ({
+      slug: tenant.slug,
+      displayName: tenant.displayName,
+      iconUrl: tenant.branding?.iconUrl ?? null,
+      primaryColor: tenant.branding?.primaryColor ?? '#D62839',
+      city: tenant.units[0]?.city ?? null,
+      state: tenant.units[0]?.state ?? null,
+    }));
   }
 
   @Get('resolve')

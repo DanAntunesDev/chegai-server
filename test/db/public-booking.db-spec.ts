@@ -147,6 +147,14 @@ describe('public booking', () => {
       .expect(404);
   });
 
+  it('finds barbershops by name for the customer login', async () => {
+    const found = await request(server()).get('/v1/public/tenants').query({ q: slug }).expect(200);
+    expect(found.body).toEqual([
+      expect.objectContaining({ slug, displayName: 'Barbearia Pública' }),
+    ]);
+    await request(server()).get('/v1/public/tenants').query({ q: 'ab' }).expect(400);
+  });
+
   it('books end to end with a verified phone and lets the customer cancel', async () => {
     const hold = await request(server())
       .post(`${base}/bookings/holds`)
