@@ -25,11 +25,25 @@ export interface PixCode {
   expiresAt: string | null;
 }
 
+export interface PaymentLinkInput {
+  name: string;
+  description: string;
+  amountCents: number;
+  dueDays: number;
+}
+
+export interface CreatedPaymentLink {
+  id: string;
+  url: string;
+}
+
 export abstract class PaymentGateway {
   abstract readonly name: string;
   abstract createCustomer(customer: GatewayCustomer): Promise<string>;
   abstract createCharge(charge: GatewayCharge): Promise<CreatedCharge>;
   abstract cancelCharge(id: string): Promise<void>;
   abstract pixCode(id: string): Promise<PixCode>;
-  abstract verifyWebhook(token: string | undefined): boolean;
+  abstract verifyWebhook(token: string | undefined): Promise<boolean>;
+  abstract createPaymentLink(input: PaymentLinkInput, apiKey?: string): Promise<CreatedPaymentLink>;
+  abstract testConnection(apiKey?: string): Promise<{ ok: boolean; detail: string }>;
 }

@@ -3,11 +3,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppError } from '../../common/errors/app-error';
 import type { Env } from '../../config/env';
+import { PlatformSettingsService } from '../integrations/platform-settings.service';
 import {
   type CreatedCharge,
+  type CreatedPaymentLink,
   type GatewayCharge,
   type GatewayCustomer,
   PaymentGateway,
+  type PaymentLinkInput,
   type PixCode,
 } from './payment-gateway';
 
@@ -19,15 +22,27 @@ interface AsaasError {
 export class AsaasGateway extends PaymentGateway {
   readonly name = 'asaas';
   private readonly logger = new Logger('AsaasGateway');
-  private readonly baseUrl: string;
-  private readonly apiKey: string | undefined;
-  private readonly webhookToken: string | undefined;
+  private readonly envUrl: string;
+  private readonly envKey: string | undefined;
+  private readonly envToken: string | undefined;
 
-  constructor(config: ConfigService<Env, true>) {
+  constructor(
+    config: ConfigService<Env, true>,
+    private readonly settings: PlatformSettingsService,
+  ) {
     super();
-    this.baseUrl = config.get('ASAAS_API_URL', { infer: true });
-    this.apiKey = config.get('ASAAS_API_KEY', { infer: true });
-    this.webhookToken = config.get('ASAAS_WEBHOOK_TOKEN', { infer: true });
+    this.envUrl = config.get('ASAAS_API_URL', { infer: true });
+    this.envKey = config.get('ASAAS_API_KEY', { infer: true });
+    this.envToken = config.get('ASAAS_WEBHOOK_TOKEN', { infer: true });
+  }
+
+  private async config() {
+    const stored = await this.settings.get('asaas');
+    return {
+      baseUrl: (stored.apiUrl || this.envUrl).replace(/\/$/, ''),
+      apiKey: stored.apiKey || this.envKey,
+      webhookToken: stored.webhookToken || this.envToken,
+    };
   }
 
   async createCustomer(customer: GatewayCustomer): Promise<string> {
@@ -71,23 +86,66 @@ export class AsaasGateway extends PaymentGateway {
     };
   }
 
-  verifyWebhook(token: string | undefined): boolean {
-    if (!this.webhookToken || !token) {
+  async createPaymentLink(input: PaymentLinkInput, apiKey?: string): Promise<CreatedPaymentLink> {
+    const body = await this.request<{ id: string; url: string }>(
+      'POST',
+      '/paymentLinks',
+      {
+        name: input.name.slice(0, 100),
+        description: input.description.slice(0, 500),
+        billingType: 'UNDEFINED',
+        chargeType: 'DETACHED',
+        value: input.amountCents / 100,
+        dueDateLimitDays: input.dueDays,
+        notificationEnabled: false,
+      },
+      apiKey,
+    );
+    return { id: body.id, url: body.url };
+  }
+
+  async testConnection(apiKey?: string) {
+    try {
+      const body = await this.request<{ balance?: number }>(
+        'GET',
+        '/finance/balance',
+        undefined,
+        apiKey,
+      );
+      return {
+        ok: true,
+        detail: `Conectado. Saldo disponível: R$ ${(body.balance ?? 0).toFixed(2)}`,
+      };
+    } catch (error) {
+      return { ok: false, detail: error instanceof AppError ? error.message : 'Falha ao conectar' };
+    }
+  }
+
+  async verifyWebhook(token: string | undefined): Promise<boolean> {
+    const { webhookToken } = await this.config();
+    if (!webhookToken || !token) {
       return false;
     }
-    const expected = Buffer.from(this.webhookToken);
+    const expected = Buffer.from(webhookToken);
     const received = Buffer.from(token);
     return expected.length === received.length && timingSafeEqual(expected, received);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    if (!this.apiKey) {
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    apiKeyOverride?: string,
+  ): Promise<T> {
+    const { baseUrl, apiKey: platformKey } = await this.config();
+    const apiKey = apiKeyOverride || platformKey;
+    if (!apiKey) {
       throw new AppError('PAYMENTS_NOT_CONFIGURED', 'Payment provider is not configured', 503);
     }
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
-        access_token: this.apiKey,
+        access_token: apiKey,
         'Content-Type': 'application/json',
         'User-Agent': 'chegai-server',
       },
@@ -98,7 +156,11 @@ export class AsaasGateway extends PaymentGateway {
     if (!response.ok) {
       const detail = payload.errors?.map((error) => error.description).join('; ');
       this.logger.error(`asaas ${method} ${path} failed with ${response.status}: ${detail ?? ''}`);
-      throw new AppError('PAYMENT_PROVIDER_ERROR', 'Payment provider rejected the request', 502);
+      throw new AppError(
+        'PAYMENT_PROVIDER_ERROR',
+        detail || 'Payment provider rejected the request',
+        502,
+      );
     }
     return payload;
   }

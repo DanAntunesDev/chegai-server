@@ -82,7 +82,7 @@ export class BillingController {
     @Headers('asaas-access-token') token: string | undefined,
     @Body() body: WebhookPayload,
   ) {
-    if (!this.gateway.verifyWebhook(token)) {
+    if (!(await this.gateway.verifyWebhook(token))) {
       throw AppError.unauthorized('INVALID_WEBHOOK_TOKEN', 'Invalid webhook token');
     }
     await this.billing.handleWebhook(body);

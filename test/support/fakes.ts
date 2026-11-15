@@ -2,6 +2,8 @@ import type {
   CreatedCharge,
   GatewayCharge,
   GatewayCustomer,
+  PaymentLinkInput,
+  CreatedPaymentLink,
   PixCode,
 } from '../../src/modules/billing/payment-gateway';
 import type {
@@ -77,7 +79,19 @@ export class FakePaymentGateway {
     return Promise.resolve({ image: 'iVBORw0KGgo=', payload: `pix-${id}`, expiresAt: null });
   }
 
-  verifyWebhook(token: string | undefined): boolean {
-    return token === FAKE_WEBHOOK_TOKEN;
+  readonly links: (PaymentLinkInput & { id: string; apiKey?: string })[] = [];
+
+  verifyWebhook(token: string | undefined): Promise<boolean> {
+    return Promise.resolve(token === FAKE_WEBHOOK_TOKEN);
+  }
+
+  createPaymentLink(input: PaymentLinkInput, apiKey?: string): Promise<CreatedPaymentLink> {
+    const id = `link_${this.links.length + 1}_${Date.now()}`;
+    this.links.push({ ...input, id, apiKey });
+    return Promise.resolve({ id, url: `https://sandbox.test/c/${id}` });
+  }
+
+  testConnection(): Promise<{ ok: boolean; detail: string }> {
+    return Promise.resolve({ ok: true, detail: 'fake' });
   }
 }
