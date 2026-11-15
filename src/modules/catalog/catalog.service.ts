@@ -47,11 +47,21 @@ export class CatalogService {
 
   listServices(auth: TenantAuthContext, input: ListServicesInput) {
     return this.prisma.withTenant(auth.tenantId, (tx) =>
-      tx.service.findMany({
-        where: { deletedAt: null, isActive: input.includeInactive ? undefined : true },
-        include: { category: { select: { id: true, name: true } } },
-        orderBy: [{ position: 'asc' }, { name: 'asc' }],
-      }),
+      tx.service
+        .findMany({
+          where: { deletedAt: null, isActive: input.includeInactive ? undefined : true },
+          include: {
+            category: { select: { id: true, name: true } },
+            comboItems: { select: { serviceId: true } },
+          },
+          orderBy: [{ position: 'asc' }, { name: 'asc' }],
+        })
+        .then((services) =>
+          services.map(({ comboItems, ...service }) => ({
+            ...service,
+            includes: comboItems.map((item) => item.serviceId),
+          })),
+        ),
     );
   }
 
@@ -60,7 +70,10 @@ export class CatalogService {
       if (input.categoryId) {
         await this.findCategory(tx, input.categoryId);
       }
-      return tx.service.create({ data: { ...input, tenantId: auth.tenantId } });
+      const { includes, ...data } = input;
+      const service = await tx.service.create({ data: { ...data, tenantId: auth.tenantId } });
+      await this.saveComboItems(tx, auth.tenantId, service.id, includes);
+      return { ...service, includes: includes ?? [] };
     });
   }
 
@@ -70,7 +83,14 @@ export class CatalogService {
       if (input.categoryId) {
         await this.findCategory(tx, input.categoryId);
       }
-      return tx.service.update({ where: { id }, data: input });
+      const { includes, ...data } = input;
+      const service = await tx.service.update({ where: { id }, data });
+      await this.saveComboItems(tx, auth.tenantId, id, includes);
+      const items = await tx.serviceComboItem.findMany({
+        where: { comboId: id },
+        select: { serviceId: true },
+      });
+      return { ...service, includes: items.map((item) => item.serviceId) };
     });
   }
 
@@ -79,6 +99,39 @@ export class CatalogService {
       await this.findService(tx, id);
       await tx.service.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
     });
+  }
+
+  private async saveComboItems(
+    tx: TransactionClient,
+    tenantId: string,
+    comboId: string,
+    includes: string[] | undefined,
+  ) {
+    if (includes === undefined) {
+      return;
+    }
+    const ids = [...new Set(includes)];
+    if (ids.includes(comboId)) {
+      throw AppError.badRequest('INVALID_COMBO', 'A combo cannot include itself');
+    }
+    if (ids.length) {
+      const found = await tx.service.findMany({
+        where: { id: { in: ids }, deletedAt: null },
+        select: { id: true, comboItems: { select: { serviceId: true } } },
+      });
+      if (found.length !== ids.length) {
+        throw AppError.notFound('SERVICE_NOT_FOUND', 'One or more services were not found');
+      }
+      if (found.some((service) => service.comboItems.length > 0)) {
+        throw AppError.badRequest('INVALID_COMBO', 'A combo cannot include another combo');
+      }
+    }
+    await tx.serviceComboItem.deleteMany({ where: { comboId } });
+    if (ids.length) {
+      await tx.serviceComboItem.createMany({
+        data: ids.map((serviceId) => ({ tenantId, comboId, serviceId })),
+      });
+    }
   }
 
   private async findCategory(tx: TransactionClient, id: string) {

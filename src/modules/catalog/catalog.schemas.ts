@@ -16,6 +16,13 @@ const serviceFields = z.object({
   bufferMinutes: z.number().int().min(0).max(120),
   position: z.number().int().min(0),
   isActive: z.boolean(),
+  includes: z
+    .array(z.uuid())
+    .max(6)
+    .refine(
+      (ids) => ids.length === 0 || new Set(ids).size >= 2,
+      'a combo needs at least two services',
+    ),
 });
 
 export const createServiceSchema = serviceFields

@@ -72,6 +72,7 @@ export class PublicTenantService {
           description: true,
           priceCents: true,
           durationMinutes: true,
+          comboItems: { select: { serviceId: true } },
         },
       });
       const staff = await tx.staff.findMany({
@@ -93,7 +94,10 @@ export class PublicTenantService {
       });
       return {
         categories,
-        services,
+        services: services.map(({ comboItems, ...service }) => ({
+          ...service,
+          includes: comboItems.map((item) => item.serviceId),
+        })),
         staff: staff.map((member) => ({
           id: member.id,
           name: member.nickname ?? member.name,

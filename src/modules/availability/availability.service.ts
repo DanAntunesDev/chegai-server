@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppError } from '../../common/errors/app-error';
 import { minutesToTime } from '../../common/validation/fields';
 import type { TransactionClient } from '../../prisma/prisma.service';
+import { applyCombos, groupCombos } from '../catalog/combos';
 import { computeSlots, type Slot, type StaffSchedule } from './slots';
 import { addDays, localMinuteToInstant } from './zoned-time';
 
@@ -32,6 +33,7 @@ export interface StaffOffer {
 
 export interface AvailabilityResult {
   unit: { id: string; timezone: string };
+  serviceIds: string[];
   slots: Slot[];
   offers: Map<string, StaffOffer>;
 }
@@ -47,7 +49,12 @@ export class AvailabilityService {
       throw AppError.notFound('UNIT_NOT_FOUND', 'Unit not found');
     }
 
-    const uniqueServiceIds = [...new Set(request.serviceIds)];
+    const comboRows = await tx.serviceComboItem.findMany({
+      where: { combo: { deletedAt: null, isActive: true } },
+      select: { comboId: true, serviceId: true },
+    });
+    const serviceIds = applyCombos(request.serviceIds, groupCombos(comboRows));
+    const uniqueServiceIds = serviceIds;
     const services = await tx.service.findMany({
       where: { id: { in: uniqueServiceIds }, deletedAt: null, isActive: true },
     });
@@ -102,7 +109,7 @@ export class AvailabilityService {
         continue;
       }
 
-      const items = request.serviceIds.map((serviceId) => {
+      const items = serviceIds.map((serviceId) => {
         const service = services.find((item) => item.id === serviceId);
         if (!service) {
           throw new Error(`Service ${serviceId} missing after validation`);
@@ -152,12 +159,13 @@ export class AvailabilityService {
       staff: schedules,
     });
 
-    return { unit: { id: unit.id, timezone: unit.timezone }, slots, offers };
+    return { unit: { id: unit.id, timezone: unit.timezone }, serviceIds, slots, offers };
   }
 
   present(result: AvailabilityResult) {
     return {
       timezone: result.unit.timezone,
+      serviceIds: result.serviceIds,
       slots: result.slots.map((slot) => ({
         time: minutesToTime(slot.minuteOfDay),
         startsAt: slot.startsAt.toISOString(),

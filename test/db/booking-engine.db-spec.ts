@@ -199,4 +199,42 @@ describe('availability and holds', () => {
       .send({ unitId, serviceIds: [barba], staffId: joao, startsAt: target?.startsAt })
       .expect(201);
   });
+  it('charges the combo price when the customer picks its services separately', async () => {
+    const combo = await request(server())
+      .post('/v1/services')
+      .set(auth)
+      .send({
+        name: 'Corte + barba',
+        priceCents: 6000,
+        durationMinutes: 45,
+        includes: [corte, barba],
+      })
+      .expect(201);
+    expect(combo.body.includes).toEqual(expect.arrayContaining([corte, barba]));
+
+    const nextWeek = new Date(Date.parse(`${date}T12:00:00Z`) + 7 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const response = await request(server())
+      .get('/v1/availability')
+      .query({ unitId, date: nextWeek, serviceIds: [barba, corte].join(','), staffId: joao })
+      .set(auth)
+      .expect(200);
+    expect(response.body.serviceIds).toEqual([combo.body.id]);
+    const offer = (
+      response.body.slots as { staff: { priceCents: number; durationMinutes: number }[] }[]
+    )[0]?.staff[0];
+    expect(offer).toMatchObject({ priceCents: 6000, durationMinutes: 45 });
+
+    await request(server())
+      .post('/v1/services')
+      .set(auth)
+      .send({
+        name: 'Combo de combo',
+        priceCents: 1,
+        durationMinutes: 10,
+        includes: [combo.body.id, corte],
+      })
+      .expect(400);
+  });
 });

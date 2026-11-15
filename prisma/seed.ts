@@ -209,6 +209,14 @@ async function seedDemoOperation(tenantId: string) {
     );
   }
 
+  const combo = services.find((service) => service.name === 'Corte + barba');
+  const parts = services.filter((service) => service.name === 'Corte' || service.name === 'Barba');
+  if (combo && parts.length === 2) {
+    await prisma.serviceComboItem.createMany({
+      data: parts.map((part) => ({ tenantId, comboId: combo.id, serviceId: part.id })),
+    });
+  }
+
   for (const name of DEMO_BARBERS) {
     const staff = await prisma.staff.create({
       data: { tenantId, name, kind: 'BARBER', units: { create: { unitId: unit.id, tenantId } } },
