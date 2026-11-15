@@ -15,6 +15,7 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
@@ -54,6 +55,7 @@ import { PrismaModule } from './prisma/prisma.module';
     DiscoveryModule,
     PrismaModule,
     CryptoModule,
+    IntegrationsModule,
     IdempotencyModule,
     StorageModule,
     MailModule,
