@@ -24,6 +24,7 @@ import { PlansModule } from './modules/plans/plans.module';
 import { PublicModule } from './modules/public/public.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { TagsModule } from './modules/tags/tags.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UnitsModule } from './modules/units/units.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -64,6 +65,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PlansModule,
     AuthModule,
     PlatformAdminModule,
+    TagsModule,
     TenantModule,
     PublicModule,
     UnitsModule,
