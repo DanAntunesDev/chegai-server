@@ -97,6 +97,7 @@ model Tenant {
   services          Service[]
   serviceCategories ServiceCategory[]
   tags              Tag[]
+  integrations      TenantIntegration[]
   customers         Customer[]
   bookings          Booking[]
   subscription      Subscription?
@@ -748,4 +749,17 @@ model PaymentWebhookEvent {
 
   @@unique([provider, eventId])
   @@map("payment_webhook_events")
+}
+
+model TenantIntegration {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  key         String
+  value       String
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, key])
+  @@map("tenant_integrations")
 }
