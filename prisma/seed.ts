@@ -180,8 +180,22 @@ const DEMO_CUSTOMERS = [
   { name: 'Matheus Rocha', phone: '+5538991110005', tags: ['vip', 'mensal'] },
 ];
 
+async function seedDemoCombo(tenantId: string) {
+  const services = await prisma.service.findMany({ where: { tenantId, deletedAt: null } });
+  const combo = services.find((service) => service.name === 'Corte + barba');
+  const parts = services.filter((service) => service.name === 'Corte' || service.name === 'Barba');
+  if (!combo || parts.length !== 2) {
+    return;
+  }
+  await prisma.serviceComboItem.createMany({
+    data: parts.map((part) => ({ tenantId, comboId: combo.id, serviceId: part.id })),
+    skipDuplicates: true,
+  });
+}
+
 async function seedDemoOperation(tenantId: string) {
   if ((await prisma.service.count({ where: { tenantId } })) > 0) {
+    await seedDemoCombo(tenantId);
     return;
   }
   const unit = await prisma.unit.findFirstOrThrow({ where: { tenantId, slug: 'centro' } });
@@ -209,13 +223,7 @@ async function seedDemoOperation(tenantId: string) {
     );
   }
 
-  const combo = services.find((service) => service.name === 'Corte + barba');
-  const parts = services.filter((service) => service.name === 'Corte' || service.name === 'Barba');
-  if (combo && parts.length === 2) {
-    await prisma.serviceComboItem.createMany({
-      data: parts.map((part) => ({ tenantId, comboId: combo.id, serviceId: part.id })),
-    });
-  }
+  await seedDemoCombo(tenantId);
 
   for (const name of DEMO_BARBERS) {
     const staff = await prisma.staff.create({
