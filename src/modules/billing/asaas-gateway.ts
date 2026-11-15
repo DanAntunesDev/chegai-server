@@ -114,7 +114,7 @@ export class AsaasGateway extends PaymentGateway {
       );
       return {
         ok: true,
-        detail: `Conectado. Saldo disponível: R$ ${(body.balance ?? 0).toFixed(2)}`,
+        detail: `Conectado. Saldo disponível: ${(body.balance ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
       };
     } catch (error) {
       return { ok: false, detail: error instanceof AppError ? error.message : 'Falha ao conectar' };
