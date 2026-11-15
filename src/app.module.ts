@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
@@ -33,6 +35,19 @@ import { PrismaModule } from './prisma/prisma.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => buildLoggerOptions(config),
     }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: 60_000,
+            limit: config.get('RATE_LIMIT_PER_MINUTE', { infer: true }),
+          },
+        ],
+        skipIf: () => process.env.NODE_ENV === 'test' && process.env.THROTTLE_IN_TESTS !== 'true',
+      }),
+    }),
     PrismaModule,
     CryptoModule,
     IdempotencyModule,
@@ -52,5 +67,6 @@ import { PrismaModule } from './prisma/prisma.module';
     BookingsModule,
     HealthModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
