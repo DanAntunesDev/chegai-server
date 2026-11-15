@@ -81,6 +81,7 @@ model Tenant {
   featureOverrides Json?        @map("feature_overrides")
   limitOverrides   Json?        @map("limit_overrides")
   depositPercent   Int          @default(50) @map("deposit_percent")
+  depositRequired Boolean @default(true) @map("deposit_required")
   paymentApiKey    String?      @map("payment_api_key")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
