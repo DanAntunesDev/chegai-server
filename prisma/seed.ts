@@ -160,6 +160,68 @@ async function seedDemoTenant() {
   });
 
   await seedDemoOperation(tenant.id);
+  await seedDemoBilling(tenant.id, plan.name, plan.setupFeeCents, plan.monthlyPriceCents);
+}
+
+function monthStart(offset: number) {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+}
+
+async function seedDemoBilling(
+  tenantId: string,
+  planName: string,
+  setupFeeCents: number,
+  monthlyPriceCents: number,
+) {
+  const billingDay = 10;
+  await prisma.subscription.upsert({
+    where: { tenantId },
+    update: {},
+    create: { tenantId, billingDay, startedAt: monthStart(-3) },
+  });
+  if ((await prisma.invoice.count({ where: { tenantId } })) > 0) {
+    return;
+  }
+  const dueOn = (offset: number) => {
+    const start = monthStart(offset);
+    return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), billingDay));
+  };
+  const paidAt = (offset: number) => new Date(dueOn(offset).getTime() - 2 * 86_400_000);
+  const monthly = (offset: number) => {
+    const period = monthStart(offset).toISOString().slice(0, 7);
+    return {
+      tenantId,
+      kind: 'MONTHLY' as const,
+      period,
+      description: `Mensalidade Chegaí · plano ${planName} · ${period}`,
+      amountCents: monthlyPriceCents,
+      dueDate: dueOn(offset),
+    };
+  };
+  await prisma.invoice.createMany({
+    data: [
+      {
+        tenantId,
+        kind: 'SETUP',
+        period: 'setup',
+        description: `Implantação Chegaí · plano ${planName}`,
+        amountCents: setupFeeCents,
+        dueDate: dueOn(-3),
+        status: 'PAID',
+        paidAt: paidAt(-3),
+      },
+      { ...monthly(-2), status: 'PAID', paidAt: paidAt(-2) },
+      { ...monthly(-1), status: 'PAID', paidAt: paidAt(-1) },
+      { ...monthly(0), status: 'PAID', paidAt: paidAt(0) },
+      {
+        ...monthly(1),
+        status: 'PENDING',
+        providerPaymentId: 'pay_demo_mensalidade',
+        paymentUrl: 'https://sandbox.asaas.com/i/demo',
+      },
+    ],
+  });
 }
 
 const DEMO_SERVICES = [
