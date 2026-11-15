@@ -1,15 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AppError } from '../../common/errors/app-error';
 import type { BookingPaymentKind } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { TenantAuthContext } from '../auth/auth.types';
+import { BillingService } from '../billing/billing.service';
 import { PaymentGateway } from '../billing/payment-gateway';
 import { WebhookDispatcher } from '../integrations/webhook-dispatcher.service';
 import { assertCanManageBooking, assertCanViewBooking } from './booking-access';
+import { BookingsService } from './bookings.service';
 import type { CreatePaymentLinkInput, PaymentSettingsInput } from './booking-payments.schemas';
 
 const MIN_CHARGE_CENTS = 500;
+const PAYMENT_HOLD_MINUTES = 30;
 const PAYABLE_STATUSES = new Set(['CONFIRMED', 'CHECKED_IN', 'COMPLETED']);
 const KIND_LABEL: Record<BookingPaymentKind, string> = {
   DEPOSIT: 'Sinal',
@@ -43,7 +46,7 @@ const paymentSelect = {
 } as const;
 
 @Injectable()
-export class BookingPaymentsService {
+export class BookingPaymentsService implements OnModuleInit {
   private readonly logger = new Logger(BookingPaymentsService.name);
 
   constructor(
@@ -51,6 +54,8 @@ export class BookingPaymentsService {
     private readonly gateway: PaymentGateway,
     private readonly encryption: EncryptionService,
     private readonly webhooks: WebhookDispatcher,
+    private readonly billing: BillingService,
+    private readonly bookings: BookingsService,
   ) {}
 
   list(auth: TenantAuthContext, bookingId: string) {
@@ -104,65 +109,154 @@ export class BookingPaymentsService {
       );
     }
 
-    const services = booking.items.map((item) => item.name).join(' + ');
+    const payment = await this.issueLink(auth.tenantId, auth.userId, tenant, {
+      bookingId: booking.id,
+      kind: input.kind,
+      amountCents,
+      services: booking.items.map((item) => item.name).join(' + '),
+      startsAt: booking.startsAt,
+    });
+    return { payment, reused: false };
+  }
+
+  onModuleInit() {
+    this.billing.onLinkPaid(async (payment) => {
+      try {
+        await this.bookings.confirmPaid(payment.tenantId, payment.bookingId);
+      } catch (error) {
+        this.logger.warn(
+          `paid booking ${payment.bookingId} could not be confirmed: ${String(error)}`,
+        );
+      }
+    });
+  }
+
+  async checkoutPublic(
+    tenantId: string,
+    bookingId: string,
+    customer: { phone: string; name: string; notes?: string },
+  ) {
+    const tenant = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: {
+          displayName: true,
+          depositPercent: true,
+          depositRequired: true,
+          paymentApiKey: true,
+        },
+      }),
+    );
+    const preview = await this.prisma.withTenant(tenantId, (tx) => this.findBooking(tx, bookingId));
+    const amountCents = amountFor('DEPOSIT', preview.totalPriceCents, 0, tenant.depositPercent);
+    if (!tenant.depositRequired || amountCents < MIN_CHARGE_CENTS) {
+      return this.bookings.confirmPublic(tenantId, bookingId, customer);
+    }
+
+    const booking = await this.bookings.awaitPayment(
+      tenantId,
+      bookingId,
+      customer,
+      PAYMENT_HOLD_MINUTES,
+    );
+    const pending = preview.payments.find(
+      (payment) => payment.kind === 'DEPOSIT' && payment.status === 'PENDING',
+    );
+    const payment =
+      pending ??
+      (await this.issueLink(tenantId, null, tenant, {
+        bookingId,
+        kind: 'DEPOSIT',
+        amountCents,
+        services: preview.items.map((item) => item.name).join(' + '),
+        startsAt: preview.startsAt,
+      }));
+    return {
+      ...this.bookings.presentPublic(booking),
+      payment: {
+        url: payment.paymentUrl,
+        amountCents: payment.amountCents,
+        expiresAt: booking.holdExpiresAt,
+      },
+    };
+  }
+
+  private async issueLink(
+    tenantId: string,
+    createdById: string | null,
+    tenant: { displayName: string; paymentApiKey: string | null },
+    input: {
+      bookingId: string;
+      kind: BookingPaymentKind;
+      amountCents: number;
+      services: string;
+      startsAt: Date;
+    },
+  ) {
     const apiKey = tenant.paymentApiKey ? this.encryption.decrypt(tenant.paymentApiKey) : undefined;
     let link: { id: string; url: string };
     try {
       link = await this.gateway.createPaymentLink(
         {
           name: `${KIND_LABEL[input.kind]} - ${tenant.displayName}`.slice(0, 60),
-          description: `${services} em ${booking.startsAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
-          amountCents,
+          description: `${input.services} em ${input.startsAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+          amountCents: input.amountCents,
           dueDays: 3,
         },
         apiKey,
       );
     } catch (error) {
-      this.logger.warn(`payment link failed for booking ${booking.id}: ${String(error)}`);
+      this.logger.warn(`payment link failed for booking ${input.bookingId}: ${String(error)}`);
       throw AppError.badRequest(
         'PAYMENT_PROVIDER_ERROR',
         'The payment provider did not accept the request',
       );
     }
-
-    const payment = await this.prisma.withTenant(auth.tenantId, (tx) =>
+    const payment = await this.prisma.withTenant(tenantId, (tx) =>
       tx.bookingPayment.create({
         data: {
-          tenantId: auth.tenantId,
-          bookingId: booking.id,
+          tenantId,
+          bookingId: input.bookingId,
           kind: input.kind,
-          amountCents,
+          amountCents: input.amountCents,
           provider: this.gateway.name,
           providerLinkId: link.id,
           paymentUrl: link.url,
-          createdById: auth.userId,
+          createdById,
         },
         select: paymentSelect,
       }),
     );
-    this.webhooks.emit('payment.link_created', auth.tenantId, {
-      bookingId: booking.id,
+    this.webhooks.emit('payment.link_created', tenantId, {
+      bookingId: input.bookingId,
       paymentId: payment.id,
       kind: payment.kind,
-      amountCents,
+      amountCents: input.amountCents,
       url: link.url,
     });
-    return { payment, reused: false };
+    return payment;
   }
 
   settings(tenantId: string) {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const tenant = await tx.tenant.findUniqueOrThrow({
         where: { id: tenantId },
-        select: { depositPercent: true, paymentApiKey: true },
+        select: { depositPercent: true, depositRequired: true, paymentApiKey: true },
       });
-      return { depositPercent: tenant.depositPercent, ownAccount: Boolean(tenant.paymentApiKey) };
+      return {
+        depositPercent: tenant.depositPercent,
+        depositRequired: tenant.depositRequired,
+        ownAccount: Boolean(tenant.paymentApiKey),
+      };
     });
   }
 
   async updateSettings(tenantId: string, input: PaymentSettingsInput) {
     await this.prisma.withTenant(tenantId, (tx) =>
-      tx.tenant.update({ where: { id: tenantId }, data: { depositPercent: input.depositPercent } }),
+      tx.tenant.update({
+        where: { id: tenantId },
+        data: { depositPercent: input.depositPercent, depositRequired: input.depositRequired },
+      }),
     );
     return this.settings(tenantId);
   }

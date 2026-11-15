@@ -20,6 +20,8 @@ const ISSUE_DAYS_BEFORE_DUE = 7;
 const SETUP_DUE_IN_DAYS = 3;
 const PAID_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED']);
 
+export type LinkPaidHandler = (payment: { tenantId: string; bookingId: string }) => Promise<void>;
+
 export interface WebhookPayload {
   id?: string;
   event?: string;
@@ -30,6 +32,8 @@ export interface WebhookPayload {
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private readonly graceDays: number;
+
+  private readonly linkPaidHandlers: LinkPaidHandler[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -198,6 +202,10 @@ export class BillingService {
     return { duplicated: false };
   }
 
+  onLinkPaid(handler: LinkPaidHandler) {
+    this.linkPaidHandlers.push(handler);
+  }
+
   private async markLinkPaid(linkId: string, providerPaymentId: string) {
     const payment = await this.prisma.asSystem(async (tx) => {
       const found = await tx.bookingPayment.findUnique({ where: { providerLinkId: linkId } });
@@ -210,6 +218,9 @@ export class BillingService {
       });
     });
     if (payment) {
+      for (const handler of this.linkPaidHandlers) {
+        await handler({ tenantId: payment.tenantId, bookingId: payment.bookingId });
+      }
       this.webhooks.emit('payment.paid', payment.tenantId, {
         bookingId: payment.bookingId,
         paymentId: payment.id,

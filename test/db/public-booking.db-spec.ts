@@ -4,6 +4,7 @@ import request from 'supertest';
 import { PERMISSIONS } from '../../src/modules/access/permissions';
 import { addDays, localDateOf, weekdayOf } from '../../src/modules/availability/zoned-time';
 import { createTestApp, type TestApp } from '../support/app';
+import { FAKE_WEBHOOK_TOKEN } from '../support/fakes';
 
 type SlotsBody = { slots: { time: string; startsAt: string }[] };
 
@@ -88,6 +89,11 @@ describe('public booking', () => {
       .patch(`/v1/units/${unitId}`)
       .set(ownerAuth)
       .send({ slotIntervalMinutes: 30, minAdvanceMinutes: 0 })
+      .expect(200);
+    await request(server())
+      .put('/v1/payment-settings')
+      .set(ownerAuth)
+      .send({ depositRequired: false })
       .expect(200);
     corte = (
       await request(server())
@@ -212,6 +218,61 @@ describe('public booking', () => {
       'CUSTOMER',
       'CUSTOMER',
     ]);
+  });
+
+  it('only confirms the booking after the deposit is paid when the shop requires it', async () => {
+    await request(server())
+      .put('/v1/payment-settings')
+      .set(ownerAuth)
+      .send({ depositRequired: true, depositPercent: 50 })
+      .expect(200);
+    const profile = await request(server()).get(base).expect(200);
+    expect(profile.body.deposit).toEqual({ required: true, percent: 50 });
+
+    const customerAuth = { Authorization: await verifiedToken() };
+    const hold = await request(server())
+      .post(`${base}/bookings/holds`)
+      .send({ unitId, serviceIds: [corte], startsAt: await firstSlot() })
+      .expect(201);
+    const pending = await request(server())
+      .post(`${base}/bookings/${hold.body.id}/confirm`)
+      .set(customerAuth)
+      .send({ name: 'Cliente Sinal' })
+      .expect(200);
+    expect(pending.body.status).toBe('HOLD');
+    expect(pending.body.payment.url).toMatch(/^https:\/\/sandbox\.test\/c\//);
+    expect(pending.body.payment.amountCents).toBe(pending.body.totalPriceCents / 2);
+
+    const again = await request(server())
+      .post(`${base}/bookings/${hold.body.id}/confirm`)
+      .set(customerAuth)
+      .send({ name: 'Cliente Sinal' })
+      .expect(200);
+    expect(again.body.payment.url).toBe(pending.body.payment.url);
+
+    const before = await request(server()).get(`${base}/bookings`).set(customerAuth).expect(200);
+    expect(before.body).toEqual([]);
+
+    await request(server())
+      .post('/v1/webhooks/asaas')
+      .set('asaas-access-token', FAKE_WEBHOOK_TOKEN)
+      .send({
+        id: `evt_${randomUUID()}`,
+        event: 'PAYMENT_RECEIVED',
+        payment: { id: `pay_${randomUUID()}`, paymentLink: ctx.payments.links.at(-1)?.id },
+      })
+      .expect(200);
+
+    const after = await request(server()).get(`${base}/bookings`).set(customerAuth).expect(200);
+    expect(after.body).toEqual([
+      expect.objectContaining({ id: hold.body.id, status: 'CONFIRMED' }),
+    ]);
+
+    await request(server())
+      .put('/v1/payment-settings')
+      .set(ownerAuth)
+      .send({ depositRequired: false })
+      .expect(200);
   });
 
   it('keeps customer tokens and panel tokens apart', async () => {

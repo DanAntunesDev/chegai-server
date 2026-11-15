@@ -22,6 +22,7 @@ import {
 } from '../availability/availability.schemas';
 import { AvailabilityService } from '../availability/availability.service';
 import { type CreateHoldInput, createHoldSchema } from '../bookings/bookings.schemas';
+import { BookingPaymentsService } from '../bookings/booking-payments.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { CurrentCustomer, CustomerAuthGuard } from '../customer-auth/customer-auth.guard';
 import type { CustomerIdentity } from '../customer-auth/customer-token.service';
@@ -47,6 +48,7 @@ export class PublicBookingController {
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
     private readonly bookings: BookingsService,
+    private readonly payments: BookingPaymentsService,
     private readonly verification: PhoneVerificationService,
     private readonly idempotency: IdempotencyService,
   ) {}
@@ -130,7 +132,7 @@ export class PublicBookingController {
     @Body(new ZodValidationPipe(publicConfirmSchema)) body: PublicConfirmInput,
   ) {
     const tenant = await this.ownTenant(slug, customer);
-    return this.bookings.confirmPublic(tenant.id, id, { phone: customer.phone, ...body });
+    return this.payments.checkoutPublic(tenant.id, id, { phone: customer.phone, ...body });
   }
 
   @UseGuards(CustomerAuthGuard)

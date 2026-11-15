@@ -42,7 +42,12 @@ export class PublicTenantService {
           },
         }),
       ];
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { depositRequired: true, depositPercent: true },
+      });
       return {
+        deposit: { required: tenant.depositRequired, percent: tenant.depositPercent },
         branding: {
           logoUrl: branding?.logoUrl ?? null,
           logoDarkUrl: branding?.logoDarkUrl ?? null,

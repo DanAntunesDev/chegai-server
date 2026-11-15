@@ -178,6 +178,65 @@ export class BookingsService {
     );
   }
 
+  awaitPayment(
+    tenantId: string,
+    id: string,
+    customer: { phone: string; name: string; notes?: string },
+    holdMinutes: number,
+  ) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const booking = await this.find(tx, id);
+      if (booking.source !== 'PUBLIC') {
+        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+      }
+      this.assertHoldAlive(booking);
+      if (booking.customer && booking.customer.phone !== customer.phone) {
+        throw AppError.notFound('BOOKING_NOT_FOUND', 'Booking not found');
+      }
+      const record = await tx.customer.upsert({
+        where: { tenantId_phone: { tenantId, phone: customer.phone } },
+        update: { deletedAt: null },
+        create: { tenantId, phone: customer.phone, name: customer.name },
+      });
+      const holdExpiresAt = new Date(Date.now() + holdMinutes * 60_000);
+      await tx.booking.update({
+        where: { id },
+        data: { customerId: record.id, notes: customer.notes, holdExpiresAt },
+      });
+      return this.load(tx, id);
+    });
+  }
+
+  async confirmPaid(tenantId: string, id: string) {
+    const confirmed = await this.mapOverlap(() =>
+      this.prisma.withTenant(tenantId, async (tx) => {
+        const booking = await this.find(tx, id);
+        const expired = booking.status === 'CANCELED' && booking.cancelReason === 'HOLD_EXPIRED';
+        if (booking.status !== 'HOLD' && !expired) {
+          return null;
+        }
+        return this.transition(tx, {
+          booking,
+          to: 'CONFIRMED',
+          actorUserId: null,
+          reason: 'DEPOSIT_PAID',
+          data: { holdExpiresAt: null, canceledAt: null, cancelReason: null },
+        });
+      }),
+    );
+    if (confirmed) {
+      this.webhooks.emit('booking.confirmed', tenantId, {
+        id: confirmed.id,
+        status: confirmed.status,
+        source: confirmed.source,
+        startsAt: confirmed.startsAt,
+        endsAt: confirmed.endsAt,
+        totalPriceCents: confirmed.totalPriceCents,
+      });
+    }
+    return confirmed;
+  }
+
   listForCustomer(tenantId: string, phone: string) {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const bookings = await tx.booking.findMany({
