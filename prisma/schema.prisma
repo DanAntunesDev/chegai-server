@@ -80,6 +80,8 @@ model Tenant {
   trialEndsAt      DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
   featureOverrides Json?        @map("feature_overrides")
   limitOverrides   Json?        @map("limit_overrides")
+  depositPercent   Int          @default(50) @map("deposit_percent")
+  paymentApiKey    String?      @map("payment_api_key")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?    @map("deleted_at") @db.Timestamptz(6)
@@ -97,6 +99,8 @@ model Tenant {
   customers         Customer[]
   bookings          Booking[]
   subscription      Subscription?
+  bookingPayments   BookingPayment[]
+  webhookEndpoints  WebhookEndpoint[]
   invoices          Invoice[]
 
   @@index([status])
@@ -450,6 +454,86 @@ model Customer {
   @@map("customers")
 }
 
+enum BookingPaymentKind {
+  DEPOSIT
+  FULL
+  REMAINDER
+}
+
+enum BookingPaymentStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
+model BookingPayment {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  tenantId          String               @map("tenant_id") @db.Uuid
+  bookingId         String               @map("booking_id") @db.Uuid
+  kind              BookingPaymentKind
+  status            BookingPaymentStatus @default(PENDING)
+  amountCents       Int                  @map("amount_cents")
+  provider          String
+  providerLinkId    String               @unique @map("provider_link_id")
+  providerPaymentId String?              @unique @map("provider_payment_id")
+  paymentUrl        String               @map("payment_url")
+  paidAt            DateTime?            @map("paid_at") @db.Timestamptz(6)
+  createdById       String?              @map("created_by_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, bookingId])
+  @@map("booking_payments")
+}
+
+model PlatformSetting {
+  key         String   @id
+  value       String
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_settings")
+}
+
+model WebhookEndpoint {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  name      String
+  url       String
+  secret    String
+  events    String[]
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant?           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  endpointId  String    @map("endpoint_id") @db.Uuid
+  event       String
+  payload     Json
+  attempts    Int       @default(0)
+  statusCode  Int?      @map("status_code")
+  ok          Boolean   @default(false)
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(6)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, createdAt(sort: Desc)])
+  @@map("webhook_deliveries")
+}
+
 model Booking {
   id              String        @id @default(uuid(7)) @db.Uuid
   tenantId        String        @map("tenant_id") @db.Uuid
@@ -472,12 +556,13 @@ model Booking {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  unit     Unit           @relation(fields: [unitId], references: [id])
-  staff    Staff          @relation(fields: [staffId], references: [id])
-  customer Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit     Unit             @relation(fields: [unitId], references: [id])
+  staff    Staff            @relation(fields: [staffId], references: [id])
+  customer Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items    BookingItem[]
   events   BookingEvent[]
+  payments BookingPayment[]
 
   @@index([tenantId, startsAt])
   @@index([staffId, startsAt])
