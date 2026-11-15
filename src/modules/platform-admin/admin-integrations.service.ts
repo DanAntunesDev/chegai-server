@@ -2,8 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AppError } from '../../common/errors/app-error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { recordAudit } from '../audit/audit';
 import { PaymentGateway } from '../billing/payment-gateway';
-import { INTEGRATIONS, type IntegrationKey } from '../integrations/integration-catalog';
+import {
+  INTEGRATIONS,
+  type IntegrationKey,
+  TENANT_INTEGRATIONS,
+  type TenantIntegrationKey,
+} from '../integrations/integration-catalog';
+import { TenantSettingsService } from '../integrations/tenant-settings.service';
 import { PlatformSettingsService } from '../integrations/platform-settings.service';
 import { WebhookDispatcher } from '../integrations/webhook-dispatcher.service';
 import { WEBHOOK_EVENTS } from '../integrations/webhook-events';
@@ -29,6 +36,7 @@ export class AdminIntegrationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: PlatformSettingsService,
+    private readonly tenantSettings: TenantSettingsService,
     private readonly dispatcher: WebhookDispatcher,
     private readonly gateway: PaymentGateway,
     private readonly encryption: EncryptionService,
@@ -102,9 +110,10 @@ export class AdminIntegrationsService {
       : { ok: true, detail: 'Credenciais salvas' };
   }
 
-  listWebhooks() {
+  listWebhooks(tenantId?: string) {
     return this.prisma.asSystem((tx) =>
       tx.webhookEndpoint.findMany({
+        where: tenantId ? { tenantId } : undefined,
         orderBy: { createdAt: 'desc' },
         select: { ...endpointSelect, tenant: { select: { displayName: true } } },
       }),
@@ -187,6 +196,78 @@ export class AdminIntegrationsService {
       occurredAt: new Date().toISOString(),
       data: { message: 'Teste de webhook do Chegaí' },
     });
+  }
+
+  async tenantIntegrations(tenantId: string) {
+    const payments = await this.tenantPayments(tenantId);
+    return { asaas: payments, ...(await this.tenantSettings.all(tenantId)) };
+  }
+
+  async saveTenantIntegration(
+    tenantId: string,
+    key: TenantIntegrationKey,
+    body: unknown,
+    actorId: string,
+  ) {
+    await this.tenantPayments(tenantId);
+    const parsed = TENANT_INTEGRATIONS[key].schema.safeParse(body);
+    if (!parsed.success) {
+      throw AppError.badRequest('VALIDATION_FAILED', 'Invalid settings', parsed.error.flatten());
+    }
+    const data: Record<string, string | undefined> = parsed.data;
+    if (key === 'n8n' && data.agentWebhookUrl) {
+      await this.checkUrl(data.agentWebhookUrl);
+    }
+    const values = await this.tenantSettings.set(tenantId, key, data, actorId);
+    await this.prisma.asSystem((tx) =>
+      recordAudit(tx, {
+        tenantId,
+        actorUserId: actorId,
+        action: 'TENANT_INTEGRATION_UPDATED',
+        entity: 'tenant_integration',
+        entityId: key,
+        after: values,
+      }),
+    );
+    return values;
+  }
+
+  async testTenantIntegration(tenantId: string, key: TenantIntegrationKey) {
+    const values = await this.tenantSettings.get(tenantId, key);
+    if (key === 'whatsapp') {
+      const platform = await this.settings.get('whatsapp');
+      const token = values.accessToken ?? platform.accessToken;
+      if (!token || !values.phoneNumberId) {
+        return { ok: false, detail: 'Informe o ID do número e um token de acesso' };
+      }
+      try {
+        const response = await fetch(
+          `https://graph.facebook.com/v21.0/${encodeURIComponent(values.phoneNumberId)}?fields=display_phone_number,verified_name`,
+          { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5_000) },
+        );
+        if (!response.ok) {
+          return { ok: false, detail: `A Meta respondeu HTTP ${response.status}` };
+        }
+        const body = (await response.json()) as {
+          display_phone_number?: string;
+          verified_name?: string;
+        };
+        return {
+          ok: true,
+          detail: `Número ${body.display_phone_number ?? ''} (${body.verified_name ?? 'sem nome'}) conectado`,
+        };
+      } catch (error) {
+        return { ok: false, detail: error instanceof Error ? error.message : 'Sem resposta' };
+      }
+    }
+    if (key === 'n8n') {
+      return values.agentWebhookUrl
+        ? { ok: true, detail: 'Webhook do agente salvo' }
+        : { ok: false, detail: 'Informe o webhook do agente' };
+    }
+    return values.calendarId
+      ? { ok: true, detail: 'Agenda informada. A sincronização usa as credenciais da plataforma.' }
+      : { ok: false, detail: 'Informe o ID da agenda' };
   }
 
   async tenantPayments(tenantId: string) {

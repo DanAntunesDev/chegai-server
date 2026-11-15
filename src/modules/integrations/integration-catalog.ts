@@ -53,6 +53,32 @@ export const integrationKeySchema = z.enum(
   Object.keys(INTEGRATIONS) as [IntegrationKey, ...IntegrationKey[]],
 );
 
+export const TENANT_INTEGRATIONS = {
+  whatsapp: {
+    schema: z.object({
+      displayPhone: optionalText,
+      businessAccountId: optionalText,
+      phoneNumberId: optionalText,
+      accessToken: optionalSecret,
+    }),
+    secrets: ['accessToken'],
+  },
+  n8n: {
+    schema: z.object({ agentWebhookUrl: optionalUrl, apiKey: optionalSecret }),
+    secrets: ['apiKey'],
+  },
+  google: {
+    schema: z.object({ calendarId: optionalText, accountEmail: optionalText }),
+    secrets: [],
+  },
+} as const;
+
+export type TenantIntegrationKey = keyof typeof TENANT_INTEGRATIONS;
+
+export const tenantIntegrationKeySchema = z.enum(
+  Object.keys(TENANT_INTEGRATIONS) as [TenantIntegrationKey, ...TenantIntegrationKey[]],
+);
+
 export type IntegrationValues = Record<string, string | undefined>;
 
 export function mergeSettings(
@@ -60,7 +86,19 @@ export function mergeSettings(
   current: IntegrationValues,
   incoming: IntegrationValues,
 ): IntegrationValues {
-  const secrets = INTEGRATIONS[key].secrets as readonly string[];
+  return mergeValues(INTEGRATIONS[key].secrets, current, incoming);
+}
+
+export function maskSettings(key: IntegrationKey, values: IntegrationValues) {
+  return maskValues(INTEGRATIONS[key].secrets, values);
+}
+
+export function mergeValues(
+  secretFields: readonly string[],
+  current: IntegrationValues,
+  incoming: IntegrationValues,
+): IntegrationValues {
+  const secrets = secretFields;
   const next: IntegrationValues = { ...current };
   for (const [field, value] of Object.entries(incoming)) {
     if (value === undefined) {
@@ -74,8 +112,7 @@ export function mergeSettings(
   return next;
 }
 
-export function maskSettings(key: IntegrationKey, values: IntegrationValues) {
-  const secrets = INTEGRATIONS[key].secrets as readonly string[];
+export function maskValues(secrets: readonly string[], values: IntegrationValues) {
   return Object.fromEntries(
     Object.entries(values)
       .filter(([, value]) => value)

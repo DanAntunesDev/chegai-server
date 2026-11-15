@@ -9,11 +9,17 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe';
 import { CurrentAuth, PlatformAdminOnly } from '../auth/auth.decorators';
 import type { AuthContext } from '../auth/auth.types';
-import { type IntegrationKey, integrationKeySchema } from '../integrations/integration-catalog';
+import {
+  type IntegrationKey,
+  integrationKeySchema,
+  type TenantIntegrationKey,
+  tenantIntegrationKeySchema,
+} from '../integrations/integration-catalog';
 import {
   type TenantPaymentsInput,
   tenantPaymentsSchema,
@@ -50,8 +56,8 @@ export class AdminIntegrationsController {
   }
 
   @Get('webhooks')
-  listWebhooks() {
-    return this.integrations.listWebhooks();
+  listWebhooks(@Query('tenantId', new ParseUUIDPipe({ optional: true })) tenantId?: string) {
+    return this.integrations.listWebhooks(tenantId);
   }
 
   @Post('webhooks')
@@ -87,6 +93,30 @@ export class AdminIntegrationsController {
   @HttpCode(200)
   ping(@Param('id', ParseUUIDPipe) id: string) {
     return this.integrations.ping(id);
+  }
+
+  @Get('tenants/:id/integrations')
+  tenantIntegrations(@Param('id', ParseUUIDPipe) id: string) {
+    return this.integrations.tenantIntegrations(id);
+  }
+
+  @Put('tenants/:id/integrations/:key')
+  saveTenantIntegration(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('key', new ZodValidationPipe(tenantIntegrationKeySchema)) key: TenantIntegrationKey,
+    @Body() body: unknown,
+  ) {
+    return this.integrations.saveTenantIntegration(id, key, body, auth.userId);
+  }
+
+  @Post('tenants/:id/integrations/:key/test')
+  @HttpCode(200)
+  testTenantIntegration(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('key', new ZodValidationPipe(tenantIntegrationKeySchema)) key: TenantIntegrationKey,
+  ) {
+    return this.integrations.testTenantIntegration(id, key);
   }
 
   @Get('tenants/:id/payments')

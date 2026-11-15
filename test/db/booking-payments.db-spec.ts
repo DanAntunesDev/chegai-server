@@ -205,6 +205,40 @@ describe('booking payments and outbound webhooks', () => {
     await request(server()).get('/v1/admin/integrations').set(auth).expect(403);
   });
 
+  it('keeps integration settings for each barbershop', async () => {
+    await request(server())
+      .put(`/v1/admin/tenants/${tenantId}/integrations/whatsapp`)
+      .set(adminAuth)
+      .send({ phoneNumberId: '1234567890', accessToken: 'EAAG-secret-token-4321' })
+      .expect(200);
+    const listed = await request(server())
+      .get(`/v1/admin/tenants/${tenantId}/integrations`)
+      .set(adminAuth)
+      .expect(200);
+    expect(listed.body.whatsapp.values).toEqual({
+      phoneNumberId: '1234567890',
+      accessToken: { set: true, hint: '••••4321' },
+    });
+    expect(listed.body.asaas).toEqual({ depositPercent: 40, ownAccount: false });
+    expect(JSON.stringify(listed.body)).not.toContain('EAAG-secret');
+
+    await request(server())
+      .put(`/v1/admin/tenants/${tenantId}/integrations/google`)
+      .set(adminAuth)
+      .send({ calendarId: 'agenda@group.calendar.google.com' })
+      .expect(200);
+    const tested = await request(server())
+      .post(`/v1/admin/tenants/${tenantId}/integrations/google/test`)
+      .set(adminAuth)
+      .expect(200);
+    expect(tested.body.ok).toBe(true);
+    await request(server())
+      .put(`/v1/admin/tenants/${tenantId}/integrations/whatsapp`)
+      .set(auth)
+      .send({ phoneNumberId: '1' })
+      .expect(403);
+  });
+
   it('signs and delivers booking events to registered endpoints', async () => {
     const created = await request(server())
       .post('/v1/admin/webhooks')
