@@ -6,6 +6,7 @@ import { AppError } from '../../common/errors/app-error';
 import type { Env } from '../../config/env';
 
 export const CUSTOMER_TOKEN_TTL_SECONDS = 30 * 60;
+export const CUSTOMER_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 export interface CustomerIdentity {
   tenantId: string;
@@ -31,7 +32,7 @@ export class CustomerTokenService {
       .digest('base64url');
   }
 
-  sign(identity: CustomerIdentity) {
+  sign(identity: CustomerIdentity, ttlSeconds = CUSTOMER_TOKEN_TTL_SECONDS) {
     const payload: CustomerTokenPayload = {
       sub: identity.phone,
       tid: identity.tenantId,
@@ -39,7 +40,7 @@ export class CustomerTokenService {
     };
     return this.jwt.signAsync(payload, {
       secret: this.secret,
-      expiresIn: CUSTOMER_TOKEN_TTL_SECONDS,
+      expiresIn: ttlSeconds,
     });
   }
 

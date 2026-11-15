@@ -216,6 +216,62 @@ describe('public booking', () => {
       .expect(401);
   });
 
+  it('creates a customer account confirmed by whatsapp and logs in with a password', async () => {
+    const accountPhone = '38993334444';
+    const email = `cliente-${randomUUID().slice(0, 6)}@teste.com`;
+    await request(server())
+      .post(`${base}/accounts`)
+      .send({ name: 'Ana', email, phone: accountPhone, password: 'senha-da-ana' })
+      .expect(202);
+
+    await request(server())
+      .post(`${base}/accounts/login`)
+      .send({ login: email, password: 'senha-da-ana' })
+      .expect(401);
+
+    const confirmed = await request(server())
+      .post(`${base}/accounts/confirm`)
+      .send({ phone: accountPhone, code: ctx.messenger.lastCodeFor('+5538993334444') })
+      .expect(200);
+    expect(confirmed.body.customer).toMatchObject({ name: 'Ana', email, hasAccount: true });
+    expect(confirmed.body.customer).not.toHaveProperty('passwordHash');
+
+    const byEmail = await request(server())
+      .post(`${base}/accounts/login`)
+      .send({ login: email.toUpperCase(), password: 'senha-da-ana' })
+      .expect(200);
+    await request(server())
+      .post(`${base}/accounts/login`)
+      .send({ login: '(38) 99333-4444', password: 'senha-da-ana' })
+      .expect(200);
+    const wrong = await request(server())
+      .post(`${base}/accounts/login`)
+      .send({ login: email, password: 'errada-123' })
+      .expect(401);
+    expect(wrong.body.code).toBe('INVALID_CREDENTIALS');
+
+    await request(server())
+      .get(`${base}/bookings`)
+      .set({ Authorization: `Bearer ${byEmail.body.token as string}` })
+      .expect(200);
+    const me = await request(server())
+      .get(`${base}/accounts/me`)
+      .set({ Authorization: `Bearer ${byEmail.body.token as string}` })
+      .expect(200);
+    expect(me.body.phone).toBe('+5538993334444');
+
+    const again = await request(server())
+      .post(`${base}/accounts`)
+      .send({
+        name: 'Outra',
+        email: 'outra@teste.com',
+        phone: accountPhone,
+        password: 'outra-senha',
+      })
+      .expect(409);
+    expect(again.body.code).toBe('ACCOUNT_EXISTS');
+  });
+
   it('limits how many codes a phone can request', async () => {
     for (let index = 0; index < 3; index++) {
       await request(server()).post(`${base}/verification/request`).send({ phone }).expect(202);
