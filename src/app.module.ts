@@ -17,6 +17,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
+import { LogsModule } from './modules/logs/logs.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { PlatformAdminModule } from './modules/platform-admin/platform-admin.module';
@@ -59,6 +60,7 @@ import { PrismaModule } from './prisma/prisma.module';
     IntegrationsModule,
     IdempotencyModule,
     StorageModule,
+    LogsModule,
     MailModule,
     MessagingModule,
     InvitationsModule,
