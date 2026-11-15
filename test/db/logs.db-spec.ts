@@ -58,8 +58,28 @@ describe('logs', () => {
   });
 
   it('lists audit entries with the actions available to filter', async () => {
-    const response = await request(server()).get('/v1/admin/logs/audit').set(adminAuth).expect(200);
-    expect(Array.isArray(response.body.actions)).toBe(true);
+    const created = await request(server())
+      .post('/v1/admin/webhooks')
+      .set(adminAuth)
+      .send({ name: 'Auditoria', url: 'https://example.com/hook', events: ['booking.confirmed'] })
+      .expect(201);
+    await request(server())
+      .delete(`/v1/admin/webhooks/${created.body.id}`)
+      .set(adminAuth)
+      .expect(200);
+    const response = await request(server())
+      .get('/v1/admin/logs/audit')
+      .query({ action: 'webhook.deleted' })
+      .set(adminAuth)
+      .expect(200);
+    expect(response.body.actions).toEqual(
+      expect.arrayContaining(['webhook.created', 'webhook.deleted']),
+    );
+    expect(response.body.items[0]).toMatchObject({
+      entity: 'webhook',
+      entityId: created.body.id,
+      before: { name: 'Auditoria' },
+    });
   });
 
   it('removes request logs past the retention window', async () => {

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EncryptionService } from '../../common/crypto/encryption.service';
 import { AppError } from '../../common/errors/app-error';
+import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { recordAudit } from '../audit/audit';
 import { PaymentGateway } from '../billing/payment-gateway';
@@ -56,7 +57,17 @@ export class AdminIntegrationsService {
     if (!parsed.success) {
       throw AppError.badRequest('VALIDATION_FAILED', 'Invalid settings', parsed.error.flatten());
     }
-    return this.settings.set(key, parsed.data, actorId);
+    const values = await this.settings.set(key, parsed.data, actorId);
+    await this.audit(
+      actorId,
+      null,
+      'platform_integration.updated',
+      'platform_integration',
+      key,
+      undefined,
+      values,
+    );
+    return values;
   }
 
   async test(key: IntegrationKey) {
@@ -120,7 +131,7 @@ export class AdminIntegrationsService {
     );
   }
 
-  async createWebhook(input: WebhookEndpointInput) {
+  async createWebhook(input: WebhookEndpointInput, actorId: string) {
     await this.checkUrl(input.url);
     const secret = this.dispatcher.newSecret();
     const endpoint = await this.prisma.asSystem((tx) =>
@@ -136,21 +147,45 @@ export class AdminIntegrationsService {
         select: endpointSelect,
       }),
     );
+    await this.audit(
+      actorId,
+      endpoint.tenantId,
+      'webhook.created',
+      'webhook',
+      endpoint.id,
+      undefined,
+      {
+        name: endpoint.name,
+        url: endpoint.url,
+        events: endpoint.events,
+      },
+    );
     return { ...endpoint, secret };
   }
 
-  async updateWebhook(id: string, input: UpdateWebhookEndpointInput) {
+  async updateWebhook(id: string, input: UpdateWebhookEndpointInput, actorId: string) {
     if (input.url) {
       await this.checkUrl(input.url);
     }
-    await this.findWebhook(id);
-    return this.prisma.asSystem((tx) =>
+    const before = await this.findWebhook(id);
+    const updated = await this.prisma.asSystem((tx) =>
       tx.webhookEndpoint.update({ where: { id }, data: input, select: endpointSelect }),
     );
+    await this.audit(
+      actorId,
+      before.tenantId,
+      'webhook.updated',
+      'webhook',
+      id,
+      { name: before.name, url: before.url, events: before.events, isActive: before.isActive },
+      { name: updated.name, url: updated.url, events: updated.events, isActive: updated.isActive },
+    );
+    return updated;
   }
 
-  async rotateSecret(id: string) {
-    await this.findWebhook(id);
+  async rotateSecret(id: string, actorId: string) {
+    const endpoint = await this.findWebhook(id);
+    await this.audit(actorId, endpoint.tenantId, 'webhook.secret_rotated', 'webhook', id);
     const secret = this.dispatcher.newSecret();
     await this.prisma.asSystem((tx) =>
       tx.webhookEndpoint.update({
@@ -161,9 +196,13 @@ export class AdminIntegrationsService {
     return { secret };
   }
 
-  async deleteWebhook(id: string) {
-    await this.findWebhook(id);
+  async deleteWebhook(id: string, actorId: string) {
+    const endpoint = await this.findWebhook(id);
     await this.prisma.asSystem((tx) => tx.webhookEndpoint.delete({ where: { id } }));
+    await this.audit(actorId, endpoint.tenantId, 'webhook.deleted', 'webhook', id, {
+      name: endpoint.name,
+      url: endpoint.url,
+    });
     return { deleted: true };
   }
 
@@ -219,15 +258,14 @@ export class AdminIntegrationsService {
       await this.checkUrl(data.agentWebhookUrl);
     }
     const values = await this.tenantSettings.set(tenantId, key, data, actorId);
-    await this.prisma.asSystem((tx) =>
-      recordAudit(tx, {
-        tenantId,
-        actorUserId: actorId,
-        action: 'TENANT_INTEGRATION_UPDATED',
-        entity: 'tenant_integration',
-        entityId: key,
-        after: values,
-      }),
+    await this.audit(
+      actorId,
+      tenantId,
+      'integration.updated',
+      'tenant_integration',
+      key,
+      undefined,
+      values,
     );
     return values;
   }
@@ -283,8 +321,8 @@ export class AdminIntegrationsService {
     return { depositPercent: tenant.depositPercent, ownAccount: Boolean(tenant.paymentApiKey) };
   }
 
-  async saveTenantPayments(tenantId: string, input: TenantPaymentsInput) {
-    await this.tenantPayments(tenantId);
+  async saveTenantPayments(tenantId: string, input: TenantPaymentsInput, actorId: string) {
+    const before = await this.tenantPayments(tenantId);
     if (input.apiKey) {
       const check = await this.gateway.testConnection(input.apiKey);
       if (!check.ok) {
@@ -305,7 +343,23 @@ export class AdminIntegrationsService {
         },
       }),
     );
-    return this.tenantPayments(tenantId);
+    const after = await this.tenantPayments(tenantId);
+    await this.audit(actorId, tenantId, 'payments.updated', 'tenant', tenantId, before, after);
+    return after;
+  }
+
+  private audit(
+    actorId: string,
+    tenantId: string | null,
+    action: string,
+    entity: string,
+    entityId: string,
+    before?: Prisma.InputJsonValue,
+    after?: Prisma.InputJsonValue,
+  ) {
+    return this.prisma.asSystem((tx) =>
+      recordAudit(tx, { tenantId, actorUserId: actorId, action, entity, entityId, before, after }),
+    );
   }
 
   private async checkUrl(url: string) {

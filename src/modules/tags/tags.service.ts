@@ -66,7 +66,7 @@ export class TagsService {
         await recordAudit(tx, {
           tenantId: auth.tenantId,
           actorUserId: auth.userId,
-          action: 'TAG_CREATED',
+          action: 'tag.created',
           entity: 'tag',
           entityId: tag.id,
           after: { name: tag.name, color: tag.color, scope: tag.scope },
@@ -91,7 +91,7 @@ export class TagsService {
         await recordAudit(tx, {
           tenantId: auth.tenantId,
           actorUserId: auth.userId,
-          action: 'TAG_UPDATED',
+          action: 'tag.updated',
           entity: 'tag',
           entityId: id,
           before: {
@@ -115,7 +115,7 @@ export class TagsService {
       await recordAudit(tx, {
         tenantId: auth.tenantId,
         actorUserId: auth.userId,
-        action: 'TAG_DELETED',
+        action: 'tag.deleted',
         entity: 'tag',
         entityId: id,
         before: { name: tag.name, color: tag.color },

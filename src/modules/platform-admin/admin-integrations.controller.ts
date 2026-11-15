@@ -61,27 +61,31 @@ export class AdminIntegrationsController {
   }
 
   @Post('webhooks')
-  createWebhook(@Body(new ZodValidationPipe(webhookEndpointSchema)) body: WebhookEndpointInput) {
-    return this.integrations.createWebhook(body);
+  createWebhook(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(webhookEndpointSchema)) body: WebhookEndpointInput,
+  ) {
+    return this.integrations.createWebhook(body, auth.userId);
   }
 
   @Patch('webhooks/:id')
   updateWebhook(
+    @CurrentAuth() auth: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateWebhookEndpointSchema)) body: UpdateWebhookEndpointInput,
   ) {
-    return this.integrations.updateWebhook(id, body);
+    return this.integrations.updateWebhook(id, body, auth.userId);
   }
 
   @Post('webhooks/:id/rotate-secret')
   @HttpCode(200)
-  rotateSecret(@Param('id', ParseUUIDPipe) id: string) {
-    return this.integrations.rotateSecret(id);
+  rotateSecret(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.integrations.rotateSecret(id, auth.userId);
   }
 
   @Delete('webhooks/:id')
-  deleteWebhook(@Param('id', ParseUUIDPipe) id: string) {
-    return this.integrations.deleteWebhook(id);
+  deleteWebhook(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.integrations.deleteWebhook(id, auth.userId);
   }
 
   @Get('webhooks/:id/deliveries')
@@ -126,9 +130,10 @@ export class AdminIntegrationsController {
 
   @Put('tenants/:id/payments')
   saveTenantPayments(
+    @CurrentAuth() auth: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(tenantPaymentsSchema)) body: TenantPaymentsInput,
   ) {
-    return this.integrations.saveTenantPayments(id, body);
+    return this.integrations.saveTenantPayments(id, body, auth.userId);
   }
 }
