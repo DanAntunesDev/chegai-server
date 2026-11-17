@@ -515,3 +515,17 @@ model IdempotencyKey {
   @@index([createdAt])
   @@map("idempotency_keys")
 }
+
+model PhoneVerification {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  phone      String
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, phone, createdAt])
+  @@map("phone_verifications")
+}
